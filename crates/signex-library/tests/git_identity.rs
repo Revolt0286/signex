@@ -77,16 +77,16 @@ fn commits_use_the_user_identity_and_refuse_without_one() {
     // --- No identity: library init with git refuses before writing. ---
     let lib_dir = tempfile::tempdir().unwrap();
     let file = lib_dir.path().join("lib").join("lib.snxlib");
-    let err = LocalGitAdapter::init(
+    let Err(err) = LocalGitAdapter::init(
         &file,
         manifest(),
         LibraryInitOptions {
             enable_git: true,
             use_lfs: false,
         },
-    )
-    .err()
-    .expect("init must refuse");
+    ) else {
+        panic!("init must refuse");
+    };
     assert!(matches!(&err, LibraryError::Backend(m) if m.contains("identity not configured")));
     assert!(!file.exists(), "no .snxlib written on refusal");
 
@@ -94,9 +94,9 @@ fn commits_use_the_user_identity_and_refuse_without_one() {
     let rec_dir = tempfile::tempdir().unwrap();
     let rec_file = rec_dir.path().join("rec.snxlib");
     std::fs::write(&rec_file, "x").unwrap();
-    let err = LocalGitAdapter::recover_init(&rec_file)
-        .err()
-        .expect("recover_init must refuse");
+    let Err(err) = LocalGitAdapter::recover_init(&rec_file) else {
+        panic!("recover_init must refuse");
+    };
     assert!(matches!(&err, LibraryError::Backend(m) if m.contains("identity not configured")));
     assert!(
         !rec_dir.path().join(".git").exists(),
