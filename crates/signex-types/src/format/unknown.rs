@@ -66,6 +66,37 @@ impl SheetUnknown {
     }
 }
 
+/// Foreign keys carried by a [`PcbBoard`](crate::pcb::PcbBoard), kept
+/// apart by the `.snxpcb` section they were found in, for the same
+/// reason as [`SheetUnknown`]: a manifest key and a `[stackup]` key of
+/// the same name must not overwrite each other. Per-footprint and
+/// per-pad foreign keys live on the `Footprint` / `Pad` themselves.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BoardUnknown {
+    /// Top-level manifest keys (beside `format`, `pcb_id`, ...).
+    #[serde(default, skip_serializing_if = "UnknownFields::is_empty")]
+    pub manifest: UnknownFields,
+    /// Keys inside `[stackup]`.
+    #[serde(default, skip_serializing_if = "UnknownFields::is_empty")]
+    pub stackup: UnknownFields,
+    /// Keys inside `[nets]`.
+    #[serde(default, skip_serializing_if = "UnknownFields::is_empty")]
+    pub nets: UnknownFields,
+    /// Keys inside `[extras.board]`.
+    #[serde(default, skip_serializing_if = "UnknownFields::is_empty")]
+    pub extras: UnknownFields,
+}
+
+impl BoardUnknown {
+    /// `true` when no section holds a foreign key.
+    pub fn is_empty(&self) -> bool {
+        self.manifest.is_empty()
+            && self.stackup.is_empty()
+            && self.nets.is_empty()
+            && self.extras.is_empty()
+    }
+}
+
 impl Deref for UnknownFields {
     type Target = BTreeMap<String, toml::Value>;
 

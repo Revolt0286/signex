@@ -45,6 +45,7 @@ pub(super) fn empty_sheet() -> SchematicSheet {
 
 pub(super) fn empty_board() -> PcbBoard {
     PcbBoard {
+        unknown: Default::default(),
         uuid: Uuid::nil(),
         version: 1,
         generator: "signex-test".into(),
@@ -285,6 +286,7 @@ fn show_serialised_pcb_for_inspection() {
         },
     ];
     board.footprints.push(Footprint {
+        unknown: Default::default(),
         uuid: Uuid::parse_str("0192a8c0-0010-7000-8000-000000000001").unwrap(),
         reference: "U1".into(),
         value: "STM32F407".into(),
@@ -406,6 +408,7 @@ fn snxpcb_round_trip_with_data() {
     let mut board = empty_board();
 
     let pad1 = Pad {
+        unknown: Default::default(),
         uuid: Uuid::parse_str("0192a8c0-0011-7000-8000-000000000001").unwrap(),
         number: "1".into(),
         pad_type: PadType::Smd,
@@ -421,6 +424,7 @@ fn snxpcb_round_trip_with_data() {
         roundrect_ratio: 0.25,
     };
     let pad2 = Pad {
+        unknown: Default::default(),
         uuid: Uuid::parse_str("0192a8c0-0011-7000-8000-000000000002").unwrap(),
         number: "2".into(),
         pad_type: PadType::Smd,
@@ -437,6 +441,7 @@ fn snxpcb_round_trip_with_data() {
     };
 
     let footprint = Footprint {
+        unknown: Default::default(),
         uuid: Uuid::parse_str("0192a8c0-0010-7000-8000-000000000001").unwrap(),
         reference: "U1".into(),
         value: "STM32F407".into(),

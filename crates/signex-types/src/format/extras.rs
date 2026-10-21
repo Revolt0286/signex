@@ -285,6 +285,9 @@ pub(in crate::format) struct FootprintExtras {
     pub(in crate::format) graphics: Vec<crate::pcb::FpGraphic>,
     #[serde(default)]
     pub(in crate::format) properties: Vec<crate::property::PcbProperty>,
+    /// Keys this build does not recognise (`[extras.footprints.<uuid>]`).
+    #[serde(flatten)]
+    pub(in crate::format) unknown: UnknownFields,
 }
 
 impl FootprintExtras {
@@ -293,6 +296,7 @@ impl FootprintExtras {
             && !self.locked
             && self.graphics.is_empty()
             && self.properties.is_empty()
+            && self.unknown.is_empty()
     }
 
     pub(in crate::format) fn from_footprint(fp: &Footprint) -> Self {
@@ -301,6 +305,7 @@ impl FootprintExtras {
             locked: fp.locked,
             graphics: fp.graphics.clone(),
             properties: fp.properties.clone(),
+            unknown: fp.unknown.clone(),
         }
     }
 }
@@ -309,11 +314,14 @@ impl FootprintExtras {
 pub(in crate::format) struct PadExtras {
     #[serde(default)]
     pub(in crate::format) drill_shape: String,
+    /// Keys this build does not recognise (`[extras.pads.<uuid>]`).
+    #[serde(flatten)]
+    pub(in crate::format) unknown: UnknownFields,
 }
 
 impl PadExtras {
     pub(in crate::format) fn is_default(&self) -> bool {
-        self.drill_shape.is_empty()
+        self.drill_shape.is_empty() && self.unknown.is_empty()
     }
 
     pub(in crate::format) fn from_pad(pad: &Pad) -> Self {
@@ -323,6 +331,7 @@ impl PadExtras {
                 .as_ref()
                 .map(|d| d.shape.clone())
                 .unwrap_or_default(),
+            unknown: pad.unknown.clone(),
         }
     }
 }
@@ -335,4 +344,7 @@ pub(in crate::format) struct BoardExtras {
     pub(in crate::format) graphics: Vec<crate::pcb::BoardGraphic>,
     #[serde(default)]
     pub(in crate::format) texts: Vec<crate::pcb::BoardText>,
+    /// Keys this build does not recognise (`[extras.board]`).
+    #[serde(flatten)]
+    pub(in crate::format) unknown: UnknownFields,
 }
