@@ -215,3 +215,49 @@ fn rename_cannot_drop_or_change_the_native_extension() {
         assert!(f.app.document_state.dirty_paths.is_empty());
     }
 }
+
+#[test]
+fn renaming_the_pcb_repoints_the_projects_pcb_file() {
+    let mut f = fixture();
+    let pcb = f.prj.with_file_name("board.snxpcb");
+    fs::write(&pcb, b"").expect("write pcb");
+    f.app.document_state.projects[0].data.pcb_file = Some("board.snxpcb".to_string());
+
+    submit_rename(&mut f.app, &pcb, "board2.snxpcb");
+
+    assert!(f.app.ui_state.rename_dialog.is_none());
+    assert!(f.prj.with_file_name("board2.snxpcb").exists());
+    assert_eq!(
+        f.app.document_state.projects[0].data.pcb_file.as_deref(),
+        Some("board2.snxpcb")
+    );
+    assert!(f.app.document_state.dirty_paths.contains(&f.prj));
+}
+
+#[test]
+fn a_project_library_cannot_be_renamed_from_the_tree() {
+    use signex_types::project::{LibraryEntry, LibraryEntryKind};
+    let mut f = fixture();
+    let lib = f.prj.with_file_name("parts.snxlib");
+    fs::create_dir(&lib).expect("mkdir lib");
+    f.app.document_state.projects[0]
+        .data
+        .libraries
+        .push(LibraryEntry {
+            path: PathBuf::from("parts.snxlib"),
+            kind: LibraryEntryKind::ProjectLocal,
+            library_id: None,
+        });
+
+    submit_rename(&mut f.app, &lib, "other.snxlib");
+
+    let dialog = f
+        .app
+        .ui_state
+        .rename_dialog
+        .as_ref()
+        .expect("dialog stays open");
+    assert!(dialog.error.is_some());
+    assert!(lib.exists());
+    assert!(f.app.document_state.dirty_paths.is_empty());
+}
