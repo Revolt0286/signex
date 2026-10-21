@@ -11,14 +11,16 @@ use crate::{RuleKind, Severity, Violation};
 /// Info (ties broken by rule name for a stable report).
 ///
 /// An override is the user's verbatim choice: it replaces the severity of
-/// every violation of that rule, including rules that grade individual
-/// findings (`BadHierSheetPin`).
+/// every violation of that built-in rule, including rules that grade
+/// individual findings (`BadHierSheetPin`). Overrides are resolved through
+/// [`Violation::rule_id`], so they only ever touch built-ins: a DSL (`user::`)
+/// violation matches nothing here and keeps the severity its rule declared.
 pub fn apply_overrides(
     mut violations: Vec<Violation>,
     overrides: &HashMap<RuleKind, Severity>,
 ) -> Vec<Violation> {
     for v in &mut violations {
-        if let Some(&sev) = overrides.get(&v.rule) {
+        if let Some(&sev) = v.builtin_kind().and_then(|kind| overrides.get(&kind)) {
             v.severity = sev;
         }
     }
@@ -30,7 +32,13 @@ pub fn apply_overrides(
             Severity::Info => 2,
             Severity::Off => 3,
         };
-        (bucket, format!("{:?}", v.rule))
+        // Built-ins keep their historical tiebreak (the kind's variant name)
+        // so existing reports order identically; DSL rules sort by id.
+        let name = match v.builtin_kind() {
+            Some(kind) => format!("{kind:?}"),
+            None => v.rule_id.to_string(),
+        };
+        (bucket, name)
     });
     violations
 }
@@ -80,6 +88,48 @@ mod tests {
                 other => assert_eq!(v.severity, other.default_severity()),
             }
         }
+    }
+
+    fn dsl_violation(placeholder: RuleKind, severity: Severity) -> Violation {
+        Violation {
+            rule_id: crate::RuleId::user("my_rule"),
+            rule: placeholder,
+            severity,
+            message: "user rule".into(),
+            location: signex_types::schematic::Point::new(0.0, 0.0),
+            primary: None,
+            peer: None,
+        }
+    }
+
+    #[test]
+    fn builtin_overrides_never_touch_a_dsl_violation() {
+        for kind in RuleKind::ALL {
+            for level in LEVELS {
+                let v = dsl_violation(kind, Severity::Warning);
+                let out = apply_overrides(vec![v], &HashMap::from([(kind, level)]));
+                assert_eq!(out.len(), 1, "{kind:?} -> {level:?} dropped a DSL rule");
+                assert_eq!(out[0].severity, Severity::Warning);
+            }
+        }
+    }
+
+    #[test]
+    fn every_builtin_violation_carries_its_own_rule_id() {
+        for kind in RuleKind::ALL {
+            for v in violations_for(kind) {
+                assert_eq!(v.rule_id, crate::RuleId::builtin(kind));
+                assert_eq!(v.builtin_kind(), Some(kind));
+                assert_eq!(v.display_name(), kind.label());
+            }
+        }
+    }
+
+    #[test]
+    fn a_dsl_violation_is_named_by_its_own_id() {
+        let v = dsl_violation(RuleKind::NetLabelConflict, Severity::Info);
+        assert_eq!(v.builtin_kind(), None);
+        assert_eq!(v.display_name(), "user::my_rule");
     }
 
     #[test]

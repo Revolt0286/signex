@@ -138,6 +138,13 @@ pub enum Severity {
 /// mm; the app uses it to centre the canvas when the user clicks the message.
 #[derive(Debug, Clone)]
 pub struct Violation {
+    /// Which rule fired. Authoritative for identity: built-ins are
+    /// `builtin::<slug>`, DSL rules `user::<name>`.
+    pub rule_id: RuleId,
+    /// Built-in kind this violation is filed under. For a DSL violation it is
+    /// only the compiler's placeholder (see `fallback_kind` in
+    /// `signex-erc-dsl`) — nothing may read it to decide labels, overrides or
+    /// quick fixes; use [`Violation::builtin_kind`] instead.
     pub rule: RuleKind,
     pub severity: Severity,
     pub message: String,
@@ -146,6 +153,23 @@ pub struct Violation {
     pub primary: Option<SelectedItem>,
     /// Optional peer — the "other" object in two-object rules.
     pub peer: Option<SelectedItem>,
+}
+
+impl Violation {
+    /// The built-in rule that produced this violation, or `None` for a DSL
+    /// (`user::`) rule.
+    pub fn builtin_kind(&self) -> Option<RuleKind> {
+        self.rule_id.builtin_kind()
+    }
+
+    /// Name for the Messages panel: the built-in's label, or a DSL rule's own
+    /// id.
+    pub fn display_name(&self) -> String {
+        match self.builtin_kind() {
+            Some(kind) => kind.label().to_string(),
+            None => self.rule_id.to_string(),
+        }
+    }
 }
 
 /// Run every enabled rule against the snapshot. Returns a flat list of

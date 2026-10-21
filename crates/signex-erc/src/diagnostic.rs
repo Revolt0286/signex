@@ -64,6 +64,7 @@ impl Diagnostic {
 impl From<Diagnostic> for Violation {
     fn from(d: Diagnostic) -> Self {
         Violation {
+            rule_id: d.rule_id,
             rule: d.rule_kind,
             severity: d.severity,
             message: d.message,
