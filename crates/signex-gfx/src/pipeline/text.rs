@@ -185,15 +185,17 @@ fn shaped_buffer(
     );
     buffer.shape_until_scroll(font_system, false);
 
-    // Single-line text is the same under every alignment inside its own width.
-    if item.h_align == TextHAlign::Left || buffer.layout_runs().count() < 2 {
+    // Alignment is a no-op for a lone line or when every line is equally wide.
+    let widths: Vec<f32> = buffer.layout_runs().map(|run| run.line_w).collect();
+    let all_equal = widths.windows(2).all(|pair| pair[0] == pair[1]);
+    if item.h_align == TextHAlign::Left || widths.len() < 2 || all_equal {
         return buffer;
     }
 
     // The block offset only anchors the bounding box; each line then aligns
-    // inside it, as the CPU replay does. The width stays the widest line's so
-    // that line is not moved or wrapped.
-    let block_w = measure_text_bounds_px(&buffer)[0];
+    // inside it, as the CPU replay does. Rounded up so a float tie on the
+    // widest line cannot re-wrap it.
+    let block_w = measure_text_bounds_px(&buffer)[0].ceil();
     buffer.set_size(font_system, Some(block_w), Some(viewport_px[1]));
     let align = Some(cosmic_align(item.h_align));
     for line in buffer.lines.iter_mut() {
@@ -579,7 +581,7 @@ mod tests {
     }
 
     fn test_font_system() -> cryoglyph::FontSystem {
-        let font = include_bytes!("../../../signex-app/assets/fonts/Iosevka-Regular.ttf");
+        let font = include_bytes!("../../tests/fonts/Iosevka-Regular.ttf");
         cryoglyph::FontSystem::new_with_fonts([cryoglyph::fontdb::Source::Binary(
             std::sync::Arc::new(font.as_slice()),
         )])
@@ -608,22 +610,43 @@ mod tests {
             .collect()
     }
 
+    /// Each line's x must equal its slack inside the block the shaper aligns
+    /// within: the widest line's width, rounded up.
+    fn assert_per_line(h_align: TextHAlign, content: &str) {
+        let runs = line_extents(h_align, content);
+        assert_eq!(runs.len(), 2);
+        assert!(runs[0].1 != runs[1].1, "lines must differ in width");
+        let block_w = runs.iter().map(|r| r.1).fold(0.0_f32, f32::max).ceil();
+        for (x, line_w) in runs {
+            let slack = block_w - line_w;
+            let want = if h_align == TextHAlign::Center {
+                slack / 2.0
+            } else {
+                slack
+            };
+            assert!((x - want).abs() < 0.01, "got {x} want {want}");
+        }
+    }
+
     #[test]
     fn centred_multiline_aligns_each_line() {
-        let runs = line_extents(TextHAlign::Center, "WWWWWWWW\nWW");
-        let block_w = runs[0].1;
-        assert!(runs[0].0.abs() < 0.01, "widest line stays at block left");
-        let expected = (block_w - runs[1].1) / 2.0;
-        assert!(expected > 1.0);
-        assert!((runs[1].0 - expected).abs() < 0.01, "got {}", runs[1].0);
+        assert_per_line(TextHAlign::Center, "WWWWWWWW\nWW");
     }
 
     #[test]
     fn right_multiline_aligns_each_line() {
-        let runs = line_extents(TextHAlign::Right, "WWWWWWWW\nWW");
-        let block_w = runs[0].1;
-        assert!(runs[0].0.abs() < 0.01);
-        assert!((runs[1].0 - (block_w - runs[1].1)).abs() < 0.01);
+        assert_per_line(TextHAlign::Right, "WWWWWWWW\nWW");
+    }
+
+    /// Trailing spaces: pins whatever `line_w` counts for them. The line is
+    /// aligned by its measured width, which is what the block offset uses too.
+    #[test]
+    fn trailing_whitespace_aligns_by_measured_width() {
+        // cosmic-text 0.15 counts trailing spaces in `line_w` (4 advances, not 2).
+        let widths = line_extents(TextHAlign::Left, "AA  \nA");
+        assert!((widths[0].1 - 4.0 * widths[1].1).abs() < 0.01);
+        assert_per_line(TextHAlign::Center, "AA  \nA");
+        assert_per_line(TextHAlign::Right, "AA  \nA");
     }
 
     #[test]
