@@ -59,6 +59,8 @@ pub enum ParseError {
     UnexpectedEof { line: usize },
     #[error("unresolved USE node: {name}")]
     UnresolvedUse { name: String },
+    #[error("node nesting deeper than {limit} at line {line}")]
+    NestingTooDeep { line: usize, limit: usize },
     #[error("malformed number at line {line}: {value:?}")]
     MalformedNumber { line: usize, value: String },
 }
