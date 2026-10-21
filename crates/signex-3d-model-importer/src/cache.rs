@@ -10,6 +10,7 @@ use crate::error::ModelImportError;
 const GLB_MAGIC: &[u8; 4] = b"glTF";
 const GLB_VERSION: u32 = 2;
 const CHUNK_JSON: u32 = 0x4E4F_534A;
+#[cfg(test)]
 const CHUNK_BIN: u32 = 0x004E_4942;
 const GLB_HEADER_LEN: u64 = 12;
 const CHUNK_HEADER_LEN: u64 = 8;
@@ -51,7 +52,8 @@ pub fn cache_path(
 
 /// Returns `true` only if `glb_path` holds a structurally complete GLB 2.0:
 /// the 12-byte header, a declared length equal to the file's real length, and
-/// a JSON chunk (optionally followed by a BIN chunk) that exactly tile it.
+/// a leading JSON chunk followed by any further chunks (BIN or unknown ones a
+/// loader must ignore) that exactly tile it.
 ///
 /// A truncated or foreign file is a miss, so it is regenerated rather than
 /// served (#147).
@@ -92,10 +94,10 @@ fn validate_glb(glb_path: &Path) -> std::io::Result<bool> {
         chunk_types.push(chunk_type);
     }
 
-    Ok(matches!(
-        chunk_types.as_slice(),
-        [CHUNK_JSON] | [CHUNK_JSON, CHUNK_BIN]
-    ))
+    // GLB 2.0 requires the JSON chunk first and lets loaders ignore any
+    // further chunk types, so trailing unknown chunks are fine as long as
+    // they tile the declared length (checked above).
+    Ok(chunk_types.first() == Some(&CHUNK_JSON))
 }
 
 #[cfg(test)]
@@ -212,5 +214,32 @@ mod tests {
             !is_cache_valid(&p),
             "declared length must equal file length"
         );
+    }
+
+    #[test]
+    fn trailing_unknown_chunk_is_valid_but_leading_non_json_is_not() {
+        let mut glb = glb_bytes(br#"{"asset":{"version":"2.0"}}"#, &[1, 2, 3, 4]);
+        // Append an unknown 4-byte chunk and fix the declared total length.
+        glb.extend_from_slice(&4u32.to_le_bytes());
+        glb.extend_from_slice(&0x1234_5678u32.to_le_bytes());
+        glb.extend_from_slice(&[9, 9, 9, 9]);
+        let total = glb.len() as u32;
+        glb[8..12].copy_from_slice(&total.to_le_bytes());
+        let (_d, p) = write_tmp(&glb);
+        assert!(is_cache_valid(&p), "unknown trailing chunk must be ignored");
+
+        // Chunks that do not tile the declared length stay invalid.
+        let mut bad = glb.clone();
+        bad.truncate(bad.len() - 2);
+        let total = bad.len() as u32;
+        bad[8..12].copy_from_slice(&total.to_le_bytes());
+        let (_d, p) = write_tmp(&bad);
+        assert!(!is_cache_valid(&p));
+
+        // First chunk must be JSON.
+        let mut nojson = glb;
+        nojson[16..20].copy_from_slice(&CHUNK_BIN.to_le_bytes());
+        let (_d, p) = write_tmp(&nojson);
+        assert!(!is_cache_valid(&p));
     }
 }

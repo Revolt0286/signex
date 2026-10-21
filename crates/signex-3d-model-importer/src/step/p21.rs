@@ -174,7 +174,29 @@ fn split_statements(data: &str) -> Vec<(&str, usize)> {
     let mut seen_content = false;
     let mut in_quote = false;
 
-    for (i, b) in data.bytes().enumerate() {
+    let bytes = data.as_bytes();
+    let mut skip_until = 0usize;
+
+    for (i, &b) in bytes.iter().enumerate() {
+        if i < skip_until {
+            if b == b'\n' {
+                line += 1;
+            }
+            continue;
+        }
+        // A /* ... */ comment may hold apostrophes or semicolons; skip it
+        // whole so they cannot flip the quote state or end a statement. One
+        // that opens a statement is left out of it.
+        if b == b'/' && !in_quote && bytes.get(i + 1) == Some(&b'*') {
+            skip_until = match data[i + 2..].find("*/") {
+                Some(end) => i + 2 + end + 2,
+                None => bytes.len(),
+            };
+            if !seen_content {
+                start = skip_until;
+            }
+            continue;
+        }
         // A statement's line is where its first non-blank byte sits.
         if !seen_content && !b.is_ascii_whitespace() {
             seen_content = true;
@@ -441,21 +463,51 @@ mod tests {
         }
     }
 
-    #[test]
-    fn many_entities_parse_in_linear_time() {
-        // The old per-statement newline recount was O(n^2): this size took
-        // minutes. Linear now, so it finishes well inside the test budget.
+    fn synthetic_data(count: u32) -> String {
         let mut data = String::new();
-        for i in 1..=80_000u32 {
+        for i in 1..=count {
             data.push_str(&format!(
                 "#{i} = CARTESIAN_POINT('',(0.,0.,0.));
 "
             ));
         }
-        let started = std::time::Instant::now();
-        let entities = parse_entities(&data).expect("parse");
-        assert_eq!(entities.len(), 80_000);
-        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        data
+    }
+
+    fn best_parse_time(data: &str, expected: usize) -> std::time::Duration {
+        (0..3)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                let entities = parse_entities(data).expect("parse");
+                assert_eq!(entities.len(), expected);
+                started.elapsed()
+            })
+            .min()
+            .unwrap()
+    }
+
+    #[test]
+    fn many_entities_parse_in_linear_time() {
+        // The old per-statement newline recount was O(n^2). Compare a 20k and
+        // an 80k run instead of an absolute budget: 4x the input costs ~4x
+        // when linear and ~16x when quadratic, so a 10x ceiling separates
+        // them with slack for scheduler noise (best of three per size).
+        let small = best_parse_time(&synthetic_data(20_000), 20_000);
+        let large = best_parse_time(&synthetic_data(80_000), 80_000);
+        let floor = std::time::Duration::from_millis(1);
+        let ratio = large.as_secs_f64() / small.max(floor).as_secs_f64();
+        assert!(ratio < 10.0, "parse scaled {ratio:.1}x for 4x input");
+    }
+
+    #[test]
+    fn apostrophe_in_comment_does_not_flip_quote_state() {
+        let data = "#1 = CARTESIAN_POINT('',(0.,0.,0.));
+/* it's a comment; with semicolon */
+#2 = CARTESIAN_POINT('',(1.,0.,0.));
+#3 = CARTESIAN_POINT('',(2.,0.,0.));
+";
+        let entities = parse_entities(data).expect("parse");
+        assert_eq!(entities.len(), 3);
     }
 
     #[test]

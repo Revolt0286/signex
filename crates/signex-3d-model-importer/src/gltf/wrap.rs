@@ -31,10 +31,7 @@ pub fn wrap_gltf(
 
     validate_asset_version(&root, source_path)?;
 
-    let base_dir = source_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let base_dir = model_base_dir(source_path);
 
     let mut warnings = Vec::new();
 
@@ -281,6 +278,16 @@ fn resolve_external_uri(base_dir: &Path, uri: &str) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
+/// Directory external resources resolve against. A bare relative path such as
+/// `m.gltf` has an empty parent, which cannot be canonicalized, so it means the
+/// current directory.
+fn model_base_dir(source_path: &Path) -> PathBuf {
+    match source_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
+        _ => PathBuf::from("."),
+    }
+}
+
 fn rewrite_asset_extras(root: &mut Value, source_path: &Path, converter_version: &str) {
     let Some(asset) = root.get_mut("asset").and_then(Value::as_object_mut) else {
         return;
@@ -351,5 +358,18 @@ mod tests {
     fn decode_data_uri_non_base64_is_none() {
         let uri = "data:text/plain,abc";
         assert!(decode_data_uri(uri).is_none());
+    }
+
+    #[test]
+    fn bare_relative_source_path_uses_current_dir_as_base() {
+        let base = model_base_dir(Path::new("m.gltf"));
+        assert_eq!(base, PathBuf::from("."));
+        // The base must be canonicalizable and resolve a sibling resource.
+        assert!(base.canonicalize().is_ok());
+        assert!(resolve_external_uri(&base, "m.bin").is_ok());
+        assert_eq!(
+            model_base_dir(Path::new("dir/m.gltf")),
+            PathBuf::from("dir")
+        );
     }
 }
