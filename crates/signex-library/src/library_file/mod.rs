@@ -297,6 +297,11 @@ pub enum LibraryFileError {
     #[error("the written .snxlib document does not parse back: {reason}")]
     WrittenDocumentUnreadable { reason: String },
     #[error(
+        "the written .snxlib document does not read back as the same table {table:?}; \
+         refusing to overwrite the file with lossy output"
+    )]
+    WrittenDocumentDiffers { table: String },
+    #[error(
         "table {table:?}: column_types declares {column:?} but the TSV header \
          does not include that column"
     )]

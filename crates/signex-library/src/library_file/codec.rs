@@ -117,14 +117,41 @@ impl LibraryFile {
             }
         }
 
-        // Self-check: refuse a document our own parser cannot read back, so a
-        // bad table never reaches `atomic_write` / `commit_path` (#687).
-        if let Err(source) = LibraryFile::parse(&out) {
-            return Err(LibraryFileError::WrittenDocumentUnreadable {
+        // Self-check: refuse a document our own parser cannot read back, or
+        // reads back as something other than `self`, so a bad or lossy table
+        // never reaches `atomic_write` / `commit_path` (#687).
+        let reread = LibraryFile::parse(&out).map_err(|source| {
+            LibraryFileError::WrittenDocumentUnreadable {
                 reason: source.to_string(),
-            });
-        }
+            }
+        })?;
+        self.check_tables_survive(&reread)?;
         Ok(out)
+    }
+
+    /// Fail naming the first table that `reread` (the parse of what
+    /// [`Self::write`] just produced) does not reproduce: columns, column
+    /// types, and every declared-column cell of every row. Parseable-but-lossy
+    /// output would otherwise overwrite a good library file with a damaged one.
+    /// Row order is not compared when the table has a `row_id` column, since
+    /// the writer canonicalises it; an absent cell equals an empty one, which
+    /// is how the TSV block stores it.
+    fn check_tables_survive(&self, reread: &LibraryFile) -> Result<(), LibraryFileError> {
+        let differs = |table: &str| LibraryFileError::WrittenDocumentDiffers {
+            table: table.to_string(),
+        };
+        if reread.tables.len() != self.tables.len() {
+            return Err(differs("(table set)"));
+        }
+        for (name, table) in &self.tables {
+            let Some(back) = reread.tables.get(name) else {
+                return Err(differs(name));
+            };
+            if !same_table_content(table, back) {
+                return Err(differs(name));
+            }
+        }
+        Ok(())
     }
 
     /// Reject column names and cells that cannot live in a TSV block inside
@@ -312,4 +339,30 @@ fn serialize_tsv(table: &LibraryTable) -> String {
         out.push('\n');
     }
     out
+}
+
+/// The declared-column cells of `table`'s rows, in the order the writer
+/// emits them (sorted by `row_id` when that column exists).
+fn canonical_rows(table: &LibraryTable) -> Vec<Vec<&str>> {
+    let mut rows: Vec<Vec<&str>> = table
+        .rows
+        .iter()
+        .map(|row| {
+            table
+                .columns
+                .iter()
+                .map(|c| row.cells.get(c).map(String::as_str).unwrap_or(""))
+                .collect()
+        })
+        .collect();
+    if let Some(id_col) = table.columns.iter().position(|c| c == "row_id") {
+        rows.sort_by(|a, b| a[id_col].cmp(b[id_col]));
+    }
+    rows
+}
+
+fn same_table_content(a: &LibraryTable, b: &LibraryTable) -> bool {
+    a.columns == b.columns
+        && a.column_types == b.column_types
+        && canonical_rows(a) == canonical_rows(b)
 }

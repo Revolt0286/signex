@@ -222,6 +222,30 @@ tsv = '''
 }
 
 #[test]
+fn write_rejects_output_that_parses_but_loses_a_row() {
+    // A one-column table whose only cell is empty serialises to a blank
+    // line, which the reader skips: parseable output, but the row is gone.
+    let mut tables = BTreeMap::new();
+    tables.insert(
+        "t".into(),
+        LibraryTable {
+            columns: vec!["a".into()],
+            rows: vec![make_row(&["a"], &[""])],
+            column_types: BTreeMap::new(),
+        },
+    );
+    let lib = LibraryFile {
+        manifest: fixture_manifest(),
+        tables,
+    };
+    let err = lib.write().unwrap_err();
+    assert!(
+        matches!(&err, LibraryFileError::WrittenDocumentDiffers { table } if table == "t"),
+        "got {err:?}"
+    );
+}
+
+#[test]
 fn write_rejects_cell_with_tab() {
     let mut tables = BTreeMap::new();
     tables.insert(
