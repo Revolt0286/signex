@@ -322,6 +322,112 @@ fn remove_delete_choice_still_deletes_project_local_library() {
     assert!(app.document_state.error_notice.is_none());
 }
 
+/// #139 — kind beats path: a Shared library whose package physically sits
+/// inside the project folder is still not the project's to delete.
+#[test]
+fn remove_delete_choice_refuses_shared_library_inside_project_folder() {
+    let (mut app, tmp, _prj) = fixture_project_with_companions("Juliet");
+    let lib_dir = tmp.path().join("Vendored.snxlib");
+    fs::create_dir(&lib_dir).expect("create package");
+    let inner = lib_dir.join("part.snxsym");
+    fs::write(&inner, b"shared").expect("write part");
+    app.document_state.projects[0]
+        .data
+        .libraries
+        .push(signex_types::project::LibraryEntry {
+            path: lib_dir.clone(),
+            kind: signex_types::project::LibraryEntryKind::Shared,
+            library_id: None,
+        });
+
+    arm_remove_dialog(&mut app, &lib_dir);
+    let _ = app.update(Message::Remove(RemoveMsg::Confirm(
+        RemoveChoice::DeleteFile,
+    )));
+
+    assert!(lib_dir.is_dir(), "Shared library must survive DeleteFile");
+    assert!(inner.exists(), "Shared library contents must survive");
+    let notice = app
+        .document_state
+        .error_notice
+        .as_ref()
+        .expect("refusal must be surfaced");
+    assert_eq!(notice.title, "Delete Refused");
+    assert!(app.document_state.projects[0].data.libraries.is_empty());
+}
+
+/// Rebuild the cached project tree. The Remove confirm path refreshes it,
+/// and a dialog whose target matches nothing prunes nothing.
+fn refresh_tree(app: &mut Signex) {
+    arm_remove_dialog(app, Path::new("no-such-file.snxsch"));
+    let _ = app.update(Message::Remove(RemoveMsg::Confirm(
+        RemoveChoice::ExcludeFromProject,
+    )));
+}
+
+/// Tree path of the first node labelled `label`, depth-first.
+fn find_tree_path(
+    nodes: &[signex_widgets::tree_view::TreeNode],
+    label: &str,
+    prefix: &mut Vec<usize>,
+) -> Option<Vec<usize>> {
+    for (i, n) in nodes.iter().enumerate() {
+        prefix.push(i);
+        if n.label.trim_end_matches("  (missing)") == label {
+            return Some(prefix.clone());
+        }
+        if let Some(found) = find_tree_path(&n.children, label, prefix) {
+            return Some(found);
+        }
+        prefix.pop();
+    }
+    None
+}
+
+fn open_remove_dialog_for_label(app: &mut Signex, label: &str) {
+    refresh_tree(app);
+    let path = find_tree_path(
+        &app.document_state.panel_ctx.project_tree,
+        label,
+        &mut Vec::new(),
+    )
+    .unwrap_or_else(|| panic!("tree row {label} must exist"));
+    let _ = app.update(Message::ContextMenu(ContextMenuMsg::ProjectTreeAction(
+        ProjectTreeAction::OpenRemoveDialog(path),
+    )));
+}
+
+#[test]
+fn remove_dialog_flags_shared_library_as_outside_project() {
+    let (mut app, _tmp, _prj) = fixture_project_with_companions("Kilo");
+    let (_shared, _lib_dir, _inner) = register_shared_library(&mut app);
+
+    open_remove_dialog_for_label(&mut app, "Power.snxlib");
+
+    let dialog = app.ui_state.remove_dialog.as_ref().expect("dialog opened");
+    assert!(dialog.is_outside_project, "Shared library is outside");
+}
+
+#[test]
+fn remove_dialog_does_not_flag_project_local_library() {
+    let (mut app, tmp, _prj) = fixture_project_with_companions("Lima");
+    let lib_dir = tmp.path().join("Local.snxlib");
+    fs::create_dir(&lib_dir).expect("create local package");
+    app.document_state.projects[0]
+        .data
+        .libraries
+        .push(signex_types::project::LibraryEntry {
+            path: PathBuf::from("Local.snxlib"),
+            kind: signex_types::project::LibraryEntryKind::ProjectLocal,
+            library_id: None,
+        });
+
+    open_remove_dialog_for_label(&mut app, "Local.snxlib");
+
+    let dialog = app.ui_state.remove_dialog.as_ref().expect("dialog opened");
+    assert!(!dialog.is_outside_project, "project-local is inside");
+}
+
 // ─────────────────────────────────────────────────────────────────
 // F10 — Project dirty bit clears + panel_ctx refreshes after save
 // ─────────────────────────────────────────────────────────────────

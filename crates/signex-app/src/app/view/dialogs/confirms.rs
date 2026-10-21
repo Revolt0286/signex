@@ -144,7 +144,7 @@ impl Signex {
                         text_c,
                         border_c,
                     ),
-                ],)
+                ])
                 .padding([14, 14]),
             ]
             .width(560),

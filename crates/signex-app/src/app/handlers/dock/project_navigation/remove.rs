@@ -16,10 +16,7 @@ impl Signex {
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
-        let is_outside_project = super::remove_guard::is_outside_project(
-            &target_path,
-            self.project_root_for_tree_path(&tree_path).as_deref(),
-        );
+        let is_outside_project = self.is_outside_project_target(&tree_path, &target_path);
         self.ui_state.remove_dialog = Some(crate::app::RemoveDialogState {
             target_path,
             tree_path,
@@ -32,6 +29,25 @@ impl Signex {
     fn project_root_for_tree_path(&self, tree_path: &[usize]) -> Option<std::path::PathBuf> {
         let project = self.document_state.projects.get(*tree_path.first()?)?;
         project.path.parent().map(std::path::Path::to_path_buf)
+    }
+
+    /// Is the tree row's target a Shared / Global library entry?
+    fn is_shared_library_target(&self, tree_path: &[usize], target: &std::path::Path) -> bool {
+        tree_path
+            .first()
+            .and_then(|i| self.document_state.projects.get(*i))
+            .is_some_and(|p| super::remove_guard::is_shared_or_global_library(&p.data, target))
+    }
+
+    /// Kind-aware outside check: a Shared / Global library entry is outside
+    /// the project whatever its path says; otherwise fall back to path
+    /// containment (#139).
+    fn is_outside_project_target(&self, tree_path: &[usize], target: &std::path::Path) -> bool {
+        self.is_shared_library_target(tree_path, target)
+            || super::remove_guard::is_outside_project(
+                target,
+                self.project_root_for_tree_path(tree_path).as_deref(),
+            )
     }
 
     /// Delete the dialog's target from disk, but only if it is provably
@@ -53,7 +69,7 @@ impl Signex {
         let contained = root
             .as_deref()
             .is_some_and(|r| super::remove_guard::is_inside_project_root(target, r));
-        if !contained {
+        if !contained || self.is_shared_library_target(&state.tree_path, target) {
             self.document_state.error_notice =
                 Some(crate::app::state::ErrorNotice::delete(format!(
                     "\"{}\" is outside this project's folder (a shared library?), so it was \
