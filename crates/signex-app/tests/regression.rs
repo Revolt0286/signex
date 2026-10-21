@@ -56,6 +56,9 @@ mod preferences_symbol_drafts;
 #[path = "regression/undo_marker_divergence.rs"]
 mod undo_marker_divergence;
 
+#[path = "regression/primitive_dirty_quit.rs"]
+mod primitive_dirty_quit;
+
 #[path = "regression/dirty_paths_gateway.rs"]
 mod dirty_paths_gateway;
 
