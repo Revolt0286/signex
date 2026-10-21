@@ -588,6 +588,53 @@ fn rotation_survives_a_bake_round_trip() {
 }
 
 #[test]
+fn slot_and_margins_survive_a_sketch_bake_round_trip() {
+    use crate::library::editor::footprint::state::PadPassthrough;
+    use signex_library::PadKind;
+    use signex_sketch::solver::Solver;
+    use signex_sketch::solver::residual::ResolvedParams;
+
+    // Entering Sketch mode mints the sketch from the literal pads; once
+    // the sketch has entities the bake output replaces `footprint.pads`,
+    // so the minted `PadAttr` must carry everything the literal pad did.
+    let mut fp = Footprint::empty("test");
+    let mut pad = editor_pad("1", 0.0, 0.0);
+    pad.kind = PadKind::Tht;
+    pad.drill_diameter_mm = Some(0.9);
+    pad.passthrough = PadPassthrough {
+        drill_slot_length_mm: Some(1.8),
+        solder_mask_margin_mm: Some(0.07),
+        paste_margin_mm: Some(-0.03),
+    };
+    let mut pads = vec![pad];
+    assert_eq!(auto_mint_for_literal_pads(&mut pads, &mut fp), 1);
+
+    let sketch = fp.sketch.as_ref().unwrap();
+    let solve = Solver::default()
+        .solve(sketch, &ResolvedParams::new())
+        .expect("solve");
+    let mut out = Vec::new();
+    let mut warnings = Vec::new();
+    signex_bake::bake_pads(
+        sketch,
+        &solve,
+        &std::collections::HashMap::new(),
+        &mut out,
+        &mut warnings,
+    )
+    .expect("bake_pads ok");
+
+    assert_eq!(out.len(), 1, "one pad baked");
+    assert_eq!(
+        out[0].drill.as_ref().and_then(|d| d.slot_length),
+        Some(1.8),
+        "slot length lost on the sketch path"
+    );
+    assert_eq!(out[0].solder_mask_margin, Some(0.07));
+    assert_eq!(out[0].paste_margin, Some(-0.03));
+}
+
+#[test]
 fn sync_preserves_an_authored_rotation_expression() {
     use crate::library::editor::footprint::state::FootprintEditorState;
 

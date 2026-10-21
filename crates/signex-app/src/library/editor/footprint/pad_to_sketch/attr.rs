@@ -141,7 +141,7 @@ pub(super) fn pad_attr_from_editor_pad(pad: &EditorPad) -> PadAttr {
         .drill_diameter_mm
         .map(|d| signex_sketch::attr::DrillSpec {
             diameter_expr: format!("{}mm", format_f64(d)),
-            slot_length_expr: None,
+            slot_length_expr: pad.passthrough.drill_slot_length_mm.map(mm_expr),
             plated: !matches!(pad.kind, LibPadKind::NptHole),
         });
     PadAttr {
@@ -158,8 +158,10 @@ pub(super) fn pad_attr_from_editor_pad(pad: &EditorPad) -> PadAttr {
         offset_x_expr: None,
         offset_y_expr: None,
         drill,
-        mask_margin_expr: None,
-        paste_margin_expr: None,
+        // `signex_bake::pad` reads exactly these once the sketch owns
+        // the pads, so a `None` here erased the legacy margins on save.
+        mask_margin_expr: pad.passthrough.solder_mask_margin_mm.map(mm_expr),
+        paste_margin_expr: pad.passthrough.paste_margin_mm.map(mm_expr),
         paste_apertures: PasteAperturePattern::Single,
         ..PadAttr::default()
     }
@@ -218,6 +220,11 @@ pub(super) fn map_shape(s: &LibPadShape) -> SkPadShape {
             })
         }
     }
+}
+
+/// A millimetre length as a sketch expression (`"1.8mm"`).
+fn mm_expr(v: f64) -> String {
+    format!("{}mm", format_f64(v))
 }
 
 /// Format a float with up to 4 fractional digits, trimming trailing
