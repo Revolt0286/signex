@@ -251,8 +251,9 @@ mod tests {
         // doesn't bail with "does not exist".
         std::fs::write(dir.path().join("Comp.snxsym"), b"").unwrap();
 
-        let opened: iced::Task<Message> = app.handle_document_file_opened(Some(project_path));
-        drop(opened);
+        // The Task is dropped on purpose: it only carries the async
+        // follow-ups of the load, and the test reads the loaded state directly.
+        let _opened: iced::Task<Message> = app.handle_document_file_opened(Some(project_path));
         assert_eq!(
             app.document_state.projects.len(),
             1,

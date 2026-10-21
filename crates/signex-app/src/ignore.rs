@@ -6,9 +6,9 @@
 //!   `clippy::let_underscore_must_use` exists to flag. Suppressing it
 //!   per site costs a five-line `#[expect(..., reason = "...")]` block.
 //! * `drop(expr);` — silences every lint with no reason recorded, and
-//!   `drop` has legitimate uses all over the tree (lock guards), so it
-//!   cannot be gated. #577 recorded this as the blind spot with no
-//!   clippy answer.
+//!   `drop` has legitimate uses all over the tree (lock guards), so no
+//!   lint can ban it. `scripts/check_discarded_tasks.sh` catches the
+//!   `drop(<task>)` shapes it can see textually.
 //!
 //! [`IgnoreResult::ignore`] is one line, records the reason, and — the
 //! part that matters — **is implemented only for [`Result`]**. An

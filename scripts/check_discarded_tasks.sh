@@ -28,6 +28,11 @@
 # LIMITS — read before trusting a clean run. This is a grep, not a type
 # checker, so it can only catch the textual shape it's told to look for:
 #
+#   - It also matches `drop(<recv>.handle_x(...))` (one line or wrapped) and
+#     `drop(x)` where `x` was bound earlier in the same file by a single-line
+#     `let x = <recv>.handle_...`. `drop(expr)` is not `let _ = expr`, so
+#     neither rustc nor the `let _` grep saw it (#627). Bare `drop(guard)` on
+#     anything else is left alone: lock guards make it legitimate.
 #   - It matches `let _ = <receiver>.handle_<name>(...)` (or `::`), on one
 #     line OR rustfmt's line-wrapped `let _ =` / `    <receiver>.handle_
 #     <name>(...)` two-line form (see `find_discards` below) — the exact
@@ -48,7 +53,8 @@
 #         legitimate discard without the type.
 #       * a receiver that is itself an expression, e.g.
 #         `let _ = self.foo().handle_x();` or `let _ = v[0].handle_x();`
-#       * `drop(self.handle_x(...))` or any other must-use-defeating idiom
+#       * any other must-use-defeating idiom (`std::mem::forget`, a
+#         `let _task = ...` binding that is never read, ...)
 #       * a genuinely unused `let task = self.handle_x(...);` binding
 #         (rustc's own `unused_variables` lint already flags that one,
 #         just not the `let _ =` form this gate exists for)
@@ -86,7 +92,7 @@
 #
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="${DISCARDED_TASKS_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 ALLOWLIST="$ROOT/scripts/discarded-tasks-allowlist.txt"
 
 cd "$ROOT"
@@ -141,8 +147,24 @@ find_discards() {
         print NR
       } else if (prev_bare && trimmed ~ /^([A-Za-z_][A-Za-z0-9_]*)(\.|::)handle_/) {
         print NR
+      } else if (trimmed ~ /^drop\(([A-Za-z_][A-Za-z0-9_]*)(\.|::)handle_/) {
+        print NR
+      } else if (prev_drop && trimmed ~ /^([A-Za-z_][A-Za-z0-9_]*)(\.|::)handle_/) {
+        print NR
+      } else if (match(trimmed, /^drop\([A-Za-z_][A-Za-z0-9_]*\)/)) {
+        # `drop(x)` where `x` was bound from a handle_ call earlier in this file.
+        name = substr(trimmed, 6, RLENGTH - 6)
+        if (name in task_vars) print NR
+      }
+      # `let [mut] x[: T] = <recv>.handle_...` — remember x for a later drop(x).
+      if (match(trimmed, /^let (mut )?[A-Za-z_][A-Za-z0-9_]*(: [^=]+)? = ([A-Za-z_][A-Za-z0-9_]*)(\.|::)handle_/)) {
+        bind = trimmed
+        sub(/^let (mut )?/, "", bind)
+        sub(/[^A-Za-z0-9_].*$/, "", bind)
+        task_vars[bind] = 1
       }
       prev_bare = (trimmed == "let _ =")
+      prev_drop = (trimmed == "drop(")
     }
   ' "$f"
 }
@@ -170,7 +192,7 @@ while IFS= read -r f; do
     if is_allowlisted "$entry"; then
       continue
     fi
-    echo "FAIL  $entry — discards a Task via \`let _ = <recv>.handle_...\`."
+    echo "FAIL  $entry — discards a Task via \`let _ =\` / \`drop(...)\` on \`<recv>.handle_...\`."
     echo "      Return the Task to the caller instead (see GH #99 part 1)."
     echo "      If the callee genuinely doesn't return a Task, add"
     echo "      \"$entry\" to ${ALLOWLIST#"$ROOT"/} with a comment saying why."
@@ -183,4 +205,4 @@ if (( fail )); then
   echo "Discarded-Task gate failed. See scripts/check_discarded_tasks.sh header."
   exit 1
 fi
-echo "Discarded-Task gate: OK — no \`let _ = <recv>.handle_...\` discards found."
+echo "Discarded-Task gate: OK — no discarded \`<recv>.handle_...\` Tasks found."

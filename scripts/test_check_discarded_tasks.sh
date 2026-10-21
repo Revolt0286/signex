@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+#
+# Positive controls for scripts/check_discarded_tasks.sh: each shape the gate
+# claims to catch must fail it, and each shape it must leave alone must pass.
+# A grep gate that is never shown a violation can go dead and still say "OK".
+#
+# Usage: scripts/test_check_discarded_tasks.sh
+#
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+GATE="$ROOT/scripts/check_discarded_tasks.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+failures=0
+
+# run_case <name> <expected: fail|pass> <file body>
+run_case() {
+  local name="$1" expect="$2" body="$3" tree status
+  tree="$TMP/$name"
+  mkdir -p "$tree/crates/demo/src" "$tree/scripts"
+  printf '%s\n' "$body" > "$tree/crates/demo/src/lib.rs"
+  status=0
+  DISCARDED_TASKS_ROOT="$tree" bash "$GATE" >/dev/null 2>&1 || status=$?
+  if [[ "$expect" == fail && $status -ne 1 ]] || [[ "$expect" == pass && $status -ne 0 ]]; then
+    echo "FAIL  $name — expected $expect, gate exit $status"
+    failures=$((failures + 1))
+  else
+    echo "ok    $name"
+  fi
+}
+
+run_case let_underscore fail 'fn f() {
+    let _ = self.handle_x();
+}'
+
+run_case drop_inline fail 'fn f() {
+    drop(self.handle_x());
+}'
+
+run_case drop_wrapped fail 'fn f() {
+    drop(
+        app.handle_x(1),
+    );
+}'
+
+run_case drop_bound_variable fail 'fn f() {
+    let opened: iced::Task<Message> = app.handle_document_file_opened(p);
+    drop(opened);
+}'
+
+run_case drop_lock_guard pass 'fn f() {
+    let guard = lock.lock();
+    drop(guard);
+}'
+
+run_case drop_in_trailing_test_mod pass 'fn f() {}
+#[cfg(test)]
+mod tests {
+    fn t() {
+        let opened = app.handle_x();
+        drop(opened);
+    }
+}'
+
+run_case task_returned pass 'fn f() -> Task<Message> {
+    self.handle_x()
+}'
+
+if (( failures )); then
+  echo "check_discarded_tasks self-test: $failures case(s) failed"
+  exit 1
+fi
+echo "check_discarded_tasks self-test: OK"
