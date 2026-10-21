@@ -431,3 +431,38 @@ fn an_undo_in_one_tab_spends_exactly_one_of_that_tabs_edits() {
         "an Undo pressed in tab B must not reach into tab A's document"
     );
 }
+
+/// #597 — the Properties panel "Locked" / "DNP" checkboxes used to land in
+/// an empty arm. Each click must flip the flag through the engine and be
+/// reverted by exactly one Undo.
+#[test]
+fn panel_locked_and_dnp_toggles_write_the_symbol_and_undo_once() {
+    use signex_app::dock::DockMessage;
+    use signex_app::panels::PanelMsg;
+    let (mut app, id, _other) = fixture_two_symbols();
+    let path = PathBuf::from("undo-marker.snxsch");
+    let flags = |app: &Signex| {
+        let s = symbols_of(app, &path)
+            .into_iter()
+            .find(|s| s.uuid == id)
+            .unwrap();
+        (s.locked, s.dnp)
+    };
+    let click = |app: &mut Signex, msg: PanelMsg| {
+        let _ = app.update(Message::Dock(DockMessage::Panel(msg)));
+    };
+
+    click(&mut app, PanelMsg::ToggleSymbolDnp(id));
+    assert_eq!(flags(&app), (false, true));
+    click(&mut app, PanelMsg::ToggleSymbolLocked(id));
+    assert_eq!(flags(&app), (true, true));
+
+    let _ = app.update(Message::Edit(EditMsg::Undo));
+    assert_eq!(flags(&app), (false, true), "one Undo reverts one toggle");
+    let _ = app.update(Message::Edit(EditMsg::Undo));
+    assert_eq!(flags(&app), (false, false));
+
+    click(&mut app, PanelMsg::ToggleSymbolDnp(id));
+    click(&mut app, PanelMsg::ToggleSymbolDnp(id));
+    assert_eq!(flags(&app), (false, false), "second click clears the flag");
+}
