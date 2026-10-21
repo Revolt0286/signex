@@ -32,6 +32,7 @@ mod pcb_rows;
 mod sch_rows;
 mod tsv;
 mod units;
+mod unknown;
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +42,7 @@ mod tests;
 pub use pcb_rows::{PcbFootprintRow, PcbPadRow, PcbTrackRow, PcbViaRow};
 pub use sch_rows::{SchComponentRow, SchJunctionRow, SchLabelRow, SchWireRow};
 pub use tsv::{parse_tsv_block, write_tsv_block};
+pub use unknown::UnknownFields;
 
 // Subtree-internal helpers used by the container types below.
 use extras::{
