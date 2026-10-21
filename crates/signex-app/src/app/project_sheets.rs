@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use signex_types::schematic::SchematicSheet;
 
 use crate::app::state::DocumentState;
-use crate::app::state::scope::path_key;
+use crate::app::state::scope::{CaseFold, path_key};
 
 /// The sheets a project consists of, plus what could not be made sense of
 /// while assembling them.
@@ -187,7 +187,7 @@ pub(crate) fn assemble_project_sheets(
 
     set.pages_outside_the_hierarchy = pages
         .iter()
-        .filter(|p| !reachable.contains(&path_key(p)))
+        .filter(|p| !reachable.contains(&path_key(p, CaseFold::HOST)))
         .cloned()
         .collect();
     set.pages_outside_the_hierarchy.sort();
@@ -205,7 +205,7 @@ fn walk(
     let mut loaded: HashSet<String> = HashSet::new();
     let mut queue: Vec<PathBuf> = seeds.to_vec();
     while let Some(path) = queue.pop() {
-        let key = path_key(&path);
+        let key = path_key(&path, CaseFold::HOST);
         if !visited.insert(key.clone()) {
             // Already handled by this walk or an earlier one. Still counts as
             // covered *by this walk* if it is in the set.
@@ -331,22 +331,23 @@ pub(crate) fn project_roots(
 /// Generalizes the old `root_reference_name`, which derived a key for the
 /// root sheet only, to every sheet.
 ///
-/// Normalization is exactly [`path_key`]'s and no more: separators to `/` and
-/// case folded **on Windows only** (`cfg!(windows)`). That is a compile-time
-/// host-family proxy, not a per-volume answer, so it under-folds on a
-/// case-insensitive macOS APFS volume — `A.snxsch` and `a.snxsch` there are
-/// one file the app keys as two — and over-folds on a Windows directory with
-/// NTFS per-directory case sensitivity enabled. Both are pre-existing
-/// `path_key` behaviour that this function inherits rather than introduces;
-/// tightening it belongs with `path_key`, which project membership also
-/// depends on.
+/// Normalization is exactly [`path_key`]'s, with the host-default
+/// [`CaseFold`]; [`sheet_key_with`] takes it explicitly.
 pub(crate) fn sheet_key(path: &Path, base: Option<&Path>) -> signex_net::SheetKey {
+    sheet_key_with(path, base, CaseFold::HOST)
+}
+
+pub(crate) fn sheet_key_with(
+    path: &Path,
+    base: Option<&Path>,
+    fold: CaseFold,
+) -> signex_net::SheetKey {
     let relative = base
         .and_then(|dir| path.strip_prefix(dir).ok())
         .map(Path::to_path_buf)
         .or_else(|| path.file_name().map(PathBuf::from))
         .unwrap_or_else(|| path.to_path_buf());
-    signex_net::SheetKey::new(path_key(&relative))
+    signex_net::SheetKey::new(path_key(&relative, fold))
 }
 
 /// Re-key `sheets` (the app's `path → SchematicSheet` set) into the
@@ -780,6 +781,21 @@ mod tests {
             assert_eq!(graph.sheets.len(), 2, "unix paths are case-sensitive");
             assert!(graph.issues.is_empty());
         }
+    }
+
+    #[test]
+    fn sheet_key_is_one_key_for_case_variants_only_when_insensitive() {
+        let base = Some(Path::new("/proj"));
+        let upper = Path::new("/proj/A.snxsch");
+        let lower = Path::new("/proj/a.snxsch");
+        assert_eq!(
+            sheet_key_with(upper, base, CaseFold::Insensitive),
+            sheet_key_with(lower, base, CaseFold::Insensitive),
+        );
+        assert_ne!(
+            sheet_key_with(upper, base, CaseFold::Sensitive),
+            sheet_key_with(lower, base, CaseFold::Sensitive),
+        );
     }
 
     #[test]

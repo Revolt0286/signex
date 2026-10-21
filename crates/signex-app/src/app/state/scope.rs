@@ -21,20 +21,38 @@ use std::path::{Path, PathBuf};
 
 use super::LoadedProject;
 
+/// How [`path_key`] treats case and separators.
+///
+/// `Insensitive` also rewrites `\` to `/`, since the filesystems that fold
+/// case accept either separator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CaseFold {
+    Insensitive,
+    Sensitive,
+}
+
+impl CaseFold {
+    /// Host-family guess, not a per-volume answer: APFS is case-insensitive
+    /// yet maps to `Sensitive`, and case-sensitive NTFS directories map to
+    /// `Insensitive`.
+    pub(crate) const HOST: Self = if cfg!(windows) {
+        Self::Insensitive
+    } else {
+        Self::Sensitive
+    };
+}
+
 /// Comparison key for a filesystem path.
 ///
-/// Windows filesystems are case-insensitive and accept either separator, but
-/// Rust's `Path` comparison is neither — a `.snxprj` recording `Top.snxsch`
-/// against a tab opened as `top.snxsch` (or a file dialog handing back a
-/// differently-cased drive letter) would otherwise report the sheet as loose
-/// and silently degrade a project export to a single page. Unix paths are
-/// case-sensitive, so there the key is the path verbatim.
-pub(crate) fn path_key(path: &Path) -> String {
+/// Rust's `Path` comparison is case- and separator-sensitive, so a `.snxprj`
+/// recording `Top.snxsch` against a tab opened as `top.snxsch` would
+/// otherwise report the sheet as loose and degrade a project export to a
+/// single page. `fold` is a parameter so both arms run on every host.
+pub(crate) fn path_key(path: &Path, fold: CaseFold) -> String {
     let raw = path.to_string_lossy();
-    if cfg!(windows) {
-        raw.to_lowercase().replace('\\', "/")
-    } else {
-        raw.into_owned()
+    match fold {
+        CaseFold::Insensitive => raw.to_lowercase().replace('\\', "/"),
+        CaseFold::Sensitive => raw.into_owned(),
     }
 }
 
@@ -48,13 +66,13 @@ fn project_listing_sheet<'a>(
     projects: &'a [LoadedProject],
     path: &Path,
 ) -> Option<&'a LoadedProject> {
-    let key = path_key(path);
+    let key = path_key(path, CaseFold::HOST);
     projects.iter().find(|p| {
         let dir = p.dir();
         p.data
             .sheets
             .iter()
-            .any(|s| path_key(&dir.join(&s.filename)) == key)
+            .any(|s| path_key(&dir.join(&s.filename), CaseFold::HOST) == key)
     })
 }
 
@@ -76,7 +94,7 @@ fn parent_of(loaded: &HashMap<PathBuf, Vec<String>>) -> HashMap<String, PathBuf>
         let dir = parent_path.parent().unwrap_or_else(|| Path::new(""));
         for filename in child_refs {
             parents
-                .entry(path_key(&dir.join(filename)))
+                .entry(path_key(&dir.join(filename), CaseFold::HOST))
                 .or_insert_with(|| parent_path.clone());
         }
     }
@@ -100,8 +118,8 @@ pub(crate) fn project_owning_sheet<'a>(
     let parents = parent_of(loaded);
     let mut seen: HashSet<String> = HashSet::new();
     let mut current = path.to_path_buf();
-    while seen.insert(path_key(&current)) {
-        let parent = parents.get(&path_key(&current))?;
+    while seen.insert(path_key(&current, CaseFold::HOST)) {
+        let parent = parents.get(&path_key(&current, CaseFold::HOST))?;
         if let Some(project) = project_listing_sheet(projects, parent) {
             return Some(project);
         }
@@ -285,19 +303,33 @@ mod tests {
     }
 
     #[test]
-    fn path_case_and_separator_do_not_change_ownership_on_windows() {
-        // A `.snxprj` records `Top.snxsch`; the tab was opened through a file
-        // dialog that handed back `top.snxsch`. Same file on Windows.
-        let projects = vec![project(1, "/w/a", &["Top.snxsch"])];
-        let found = project_owning_sheet(
-            &projects,
-            &HashMap::new(),
-            &PathBuf::from("/w/a/top.snxsch"),
+    fn insensitive_fold_ignores_case_and_separator() {
+        assert_eq!(
+            path_key(Path::new("C:\\W\\Top.snxsch"), CaseFold::Insensitive),
+            path_key(Path::new("c:/w/top.snxsch"), CaseFold::Insensitive),
         );
-        if cfg!(windows) {
-            assert_eq!(found.map(|p| p.id), Some(ProjectId(1)));
+    }
+
+    #[test]
+    fn sensitive_fold_keeps_case_and_separator_verbatim() {
+        assert_ne!(
+            path_key(Path::new("/w/Top.snxsch"), CaseFold::Sensitive),
+            path_key(Path::new("/w/top.snxsch"), CaseFold::Sensitive),
+        );
+        assert_eq!(
+            path_key(Path::new("a\\b"), CaseFold::Sensitive),
+            "a\\b",
+            "backslash is an ordinary filename character on a case-sensitive host"
+        );
+    }
+
+    #[test]
+    fn host_default_follows_the_target_family() {
+        let expected = if cfg!(windows) {
+            CaseFold::Insensitive
         } else {
-            assert!(found.is_none(), "unix paths are case-sensitive");
-        }
+            CaseFold::Sensitive
+        };
+        assert_eq!(CaseFold::HOST, expected);
     }
 }
