@@ -91,3 +91,6 @@ mod library_browser_cell_commit;
 
 #[path = "regression/render_config_grid_style.rs"]
 mod render_config_grid_style;
+
+#[path = "regression/rename_preserves_references.rs"]
+mod rename_preserves_references;

@@ -71,6 +71,20 @@ impl Signex {
             self.set_rename_error("Name cannot contain path separators.");
             return iced::Task::none();
         }
+        // A native file keeps its extension: dropping or changing it
+        // would orphan the file from every editor and project reference.
+        let old_ext = state.target_path.extension().and_then(|e| e.to_str());
+        let new_ext = std::path::Path::new(new_name)
+            .extension()
+            .and_then(|e| e.to_str());
+        if old_ext != new_ext {
+            let msg = match old_ext {
+                Some(ext) => format!("The file extension must stay \".{ext}\"."),
+                None => "This file has no extension; the new name cannot add one.".to_string(),
+            };
+            self.set_rename_error(&msg);
+            return iced::Task::none();
+        }
         let parent = match state.target_path.parent() {
             Some(p) => p,
             None => {
@@ -89,18 +103,23 @@ impl Signex {
             return iced::Task::none();
         }
 
+        // Find every parent sheet that references this file BEFORE it
+        // moves, while the hierarchy walk can still reach it.
+        let rewrites = state
+            .tree_path
+            .first()
+            .map(|&idx| self.plan_reference_rewrites(idx, &state.target_path, new_name))
+            .unwrap_or_default();
+
         if let Err(e) = std::fs::rename(&state.target_path, &new_path) {
             self.set_rename_error(&format!("Rename failed: {e}"));
             return iced::Task::none();
         }
 
-        // Update in-memory project data. NOTE: this does not rewrite
-        // parent sheets that reference this child sheet — if the
-        // renamed file is referenced from a parent `sheet` S-expr,
-        // the parent still points to the old name. Recorded as a
-        // known limitation; proper rewrite lands with project-write
-        // support (v0.9). For now, sheets at the root level (no
-        // parent reference) rename cleanly.
+        // Update in-memory project data (page list + schematic root);
+        // parent-sheet references are re-pointed through the engine
+        // below. Nothing besides the rename itself is written to disk:
+        // the touched documents are marked dirty for the user to save.
         let old_filename = state
             .target_path
             .file_name()
@@ -122,6 +141,9 @@ impl Signex {
             if loaded.data.schematic_root.as_deref() == Some(old.as_str()) {
                 loaded.data.schematic_root = Some(new_name.to_string());
             }
+            // The .snxprj's sheet list changed in memory only.
+            let project_path = loaded.path.clone();
+            self.document_state.dirty_paths.insert(project_path);
         }
 
         // Update any open tabs + engine-map keys that pointed at the
@@ -141,6 +163,21 @@ impl Signex {
         }
         if self.document_state.active_path.as_ref() == Some(&old_path) {
             self.document_state.active_path = Some(new_path.clone());
+        }
+        if self.document_state.dirty_paths.remove(&old_path) {
+            self.document_state.dirty_paths.insert(new_path.clone());
+        }
+
+        let failures = self.apply_reference_rewrites(&rewrites);
+        if !failures.is_empty() {
+            self.document_state.error_notice =
+                Some(crate::app::state::ErrorNotice::rename(format!(
+                    "The file was renamed, but {} sheet reference(s) could not be                      updated and still point at the old name:
+  {}",
+                    failures.len(),
+                    failures.join("
+  ")
+                )));
         }
 
         self.ui_state.rename_dialog = None;
