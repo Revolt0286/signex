@@ -253,6 +253,11 @@ impl Signex {
         else {
             return;
         };
+        if let Some(warning) =
+            crate::app::project_sheets::netlist_root_fallback_warning(&self.document_state)
+        {
+            crate::diagnostics::log_warning(warning);
+        }
         // The same assembler the export uses, so the canvas/ERC netlist and
         // the exported one cannot disagree about what the project consists of.
         // This path used to take "every open engine + the declared pages",
@@ -566,6 +571,20 @@ mod tests {
         assert_eq!(
             crate::app::project_sheets::resolve_netlist_root(&app.document_state),
             Some(child)
+        );
+        let warning =
+            crate::app::project_sheets::netlist_root_fallback_warning(&app.document_state)
+                .expect("a rootless project warns");
+        assert!(warning.contains("declares no root sheet"), "{warning}");
+        assert!(warning.contains("child.snxsch"), "{warning}");
+    }
+
+    #[test]
+    fn a_declared_root_or_a_loose_document_raises_no_fallback_warning() {
+        let app = app_with_the_child_tab_focused();
+        assert_eq!(
+            crate::app::project_sheets::netlist_root_fallback_warning(&app.document_state),
+            None
         );
     }
 }
