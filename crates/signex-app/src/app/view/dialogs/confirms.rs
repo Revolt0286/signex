@@ -95,6 +95,34 @@ impl Signex {
                 .into()
             };
 
+        let exclude_card = option_card(
+            "Exclude from project",
+            if st.is_outside_project {
+                "Library is shared and lives outside this project. It will be excluded from the project and is not deleted from disk."
+            } else {
+                "File will be excluded from project but left in local folder. Not recommended for projects stored in version control."
+            },
+            Message::Remove(RemoveMsg::Confirm(
+                crate::app::RemoveChoice::ExcludeFromProject,
+            )),
+        );
+        // Shared / Global libraries are owned by other projects too:
+        // never offer to delete them from disk (#139).
+        let remove_options: Element<'_, Message> = if st.is_outside_project {
+            column![exclude_card].spacing(8).into()
+        } else {
+            column![
+                option_card(
+                    "Delete file",
+                    "File will be removed from project and permanently deleted.",
+                    Message::Remove(RemoveMsg::Confirm(crate::app::RemoveChoice::DeleteFile)),
+                ),
+                exclude_card,
+            ]
+            .spacing(8)
+            .into()
+        };
+
         let dialog = container(
             column![
                 header,
@@ -107,26 +135,7 @@ impl Signex {
                     .color(text_muted)
                 )
                 .padding([14, 14]),
-                container(
-                    column![
-                        option_card(
-                            "Delete file",
-                            "File will be removed from project and permanently deleted.",
-                            Message::Remove(RemoveMsg::Confirm(
-                                crate::app::RemoveChoice::DeleteFile,
-                            )),
-                        ),
-                        option_card(
-                            "Exclude from project",
-                            "File will be excluded from project but left in local folder. Not recommended for projects stored in version control.",
-                            Message::Remove(RemoveMsg::Confirm(
-                                crate::app::RemoveChoice::ExcludeFromProject,
-                            )),
-                        ),
-                    ]
-                    .spacing(8)
-                )
-                .padding([0, 14]),
+                container(remove_options).padding([0, 14]),
                 container(
                     row![
                         Space::new().width(Length::Fill),

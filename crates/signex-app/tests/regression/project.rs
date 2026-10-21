@@ -99,6 +99,7 @@ fn arm_remove_dialog(app: &mut Signex, target: &Path) {
             .and_then(|n| n.to_str())
             .unwrap_or("file")
             .to_string(),
+        is_outside_project: false,
     });
 }
 
@@ -243,6 +244,82 @@ fn remove_with_exclude_choice_keeps_the_file_on_disk() {
         target.exists(),
         "ExcludeFromProject must NOT delete the file on disk"
     );
+}
+
+/// #139 — a Shared library package lives outside the project root and is
+/// referenced by absolute path. Returns its directory (a `.snxlib` package
+/// holding one file) and the temp dir that owns it.
+fn register_shared_library(app: &mut Signex) -> (TempDir, PathBuf, PathBuf) {
+    let shared = TempDir::new().expect("shared tempdir");
+    let lib_dir = shared.path().join("Power.snxlib");
+    fs::create_dir(&lib_dir).expect("create .snxlib package");
+    let inner = lib_dir.join("part.snxsym");
+    fs::write(&inner, b"shared-symbol").expect("write shared part");
+    app.document_state.projects[0]
+        .data
+        .libraries
+        .push(signex_types::project::LibraryEntry {
+            path: lib_dir.clone(),
+            kind: signex_types::project::LibraryEntryKind::Shared,
+            library_id: None,
+        });
+    (shared, lib_dir, inner)
+}
+
+#[test]
+fn remove_delete_choice_refuses_shared_library_outside_project() {
+    let (mut app, _tmp, _prj) = fixture_project_with_companions("Golf");
+    let (_shared, lib_dir, inner) = register_shared_library(&mut app);
+
+    // Dialog state deliberately WRONG (flag false): the handler guard must
+    // hold on its own.
+    arm_remove_dialog(&mut app, &lib_dir);
+    let _ = app.update(Message::Remove(RemoveMsg::Confirm(
+        RemoveChoice::DeleteFile,
+    )));
+
+    assert!(lib_dir.is_dir(), "shared library must survive DeleteFile");
+    assert!(inner.exists(), "shared library contents must survive");
+    let notice = app
+        .document_state
+        .error_notice
+        .as_ref()
+        .expect("refusal must be surfaced to the user");
+    assert_eq!(notice.title, "Delete Refused");
+    // Still excluded from the project's in-memory list.
+    assert!(app.document_state.projects[0].data.libraries.is_empty());
+}
+
+#[test]
+fn remove_delete_choice_refuses_shared_library_file_outside_project() {
+    let (mut app, _tmp, _prj) = fixture_project_with_companions("Hotel");
+    let shared = TempDir::new().expect("shared tempdir");
+    let outside = shared.path().join("Shared.snxlib");
+    fs::write(&outside, b"shared-lib-file").expect("write shared lib file");
+
+    arm_remove_dialog(&mut app, &outside);
+    let _ = app.update(Message::Remove(RemoveMsg::Confirm(
+        RemoveChoice::DeleteFile,
+    )));
+
+    assert!(outside.exists(), "file outside the project must survive");
+    assert!(app.document_state.error_notice.is_some());
+}
+
+#[test]
+fn remove_delete_choice_still_deletes_project_local_library() {
+    let (mut app, tmp, _prj) = fixture_project_with_companions("India");
+    let lib_dir = tmp.path().join("Local.snxlib");
+    fs::create_dir(&lib_dir).expect("create local package");
+    fs::write(lib_dir.join("part.snxsym"), b"local").expect("write part");
+
+    arm_remove_dialog(&mut app, &lib_dir);
+    let _ = app.update(Message::Remove(RemoveMsg::Confirm(
+        RemoveChoice::DeleteFile,
+    )));
+
+    assert!(!lib_dir.exists(), "project-local package may be deleted");
+    assert!(app.document_state.error_notice.is_none());
 }
 
 // ─────────────────────────────────────────────────────────────────

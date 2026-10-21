@@ -171,6 +171,15 @@ impl ErrorNotice {
         }
     }
 
+    /// A delete was refused because it would have removed a file the
+    /// project does not own (#139).
+    pub fn delete(detail: impl Into<String>) -> Self {
+        Self {
+            title: "Delete Refused".to_owned(),
+            detail: detail.into(),
+        }
+    }
+
     /// A file could not be opened — unreadable, unparseable, or empty
     /// where it must not be (#532).
     pub fn open(detail: impl Into<String>) -> Self {
