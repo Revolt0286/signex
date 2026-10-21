@@ -5,7 +5,7 @@
 //! dispatchers without spinning up the iced runtime.
 
 use signex_app::app::Signex;
-use signex_app::{diagnostics, fonts};
+use signex_app::{diagnostics, fonts, startup_args};
 
 const IOSEVKA_REGULAR: &[u8] = include_bytes!("../assets/fonts/Iosevka-Regular.ttf");
 const IOSEVKA_BOLD: &[u8] = include_bytes!("../assets/fonts/Iosevka-Bold.ttf");
@@ -20,25 +20,33 @@ fn main() -> iced::Result {
     // Read the persisted UI font preference (defaults to "Roboto").
     let ui_font_name = fonts::read_ui_font_pref();
 
-    iced::daemon(Signex::new, Signex::update, Signex::view)
-        .title(Signex::title)
-        .theme(Signex::theme)
-        .subscription(Signex::subscription)
-        // Iosevka — schematic / PCB canvas text (monospace, tuned for EDA).
-        .font(IOSEVKA_REGULAR)
-        .font(IOSEVKA_BOLD)
-        // Roboto — UI chrome (panels, toolbars, menus, dialogs).
-        .font(ROBOTO_REGULAR)
-        .font(ROBOTO_BOLD)
-        // iced_aw bundled icon font — used by ColorPicker (Cancel / OK
-        // glyphs) and other iced_aw widgets. Without this their action
-        // buttons render as empty rectangles.
-        .font(iced_aw::ICED_AW_FONT_BYTES)
-        // Default UI font resolves through the Preferences-panel pick. When
-        // it matches a bundled family ("Roboto" / "Iosevka") iced uses the
-        // embedded TTF directly; otherwise it falls back to a system font.
-        .default_font(iced::Font::with_name(Box::leak(
-            ui_font_name.into_boxed_str(),
-        )))
-        .run()
+    // File associations launch `signex <path>...` (#317). Read once; the
+    // boot closure hands each path to the normal open flow.
+    let startup_paths = startup_args::document_paths_from_env();
+
+    iced::daemon(
+        move || Signex::boot(startup_paths.clone()),
+        Signex::update,
+        Signex::view,
+    )
+    .title(Signex::title)
+    .theme(Signex::theme)
+    .subscription(Signex::subscription)
+    // Iosevka — schematic / PCB canvas text (monospace, tuned for EDA).
+    .font(IOSEVKA_REGULAR)
+    .font(IOSEVKA_BOLD)
+    // Roboto — UI chrome (panels, toolbars, menus, dialogs).
+    .font(ROBOTO_REGULAR)
+    .font(ROBOTO_BOLD)
+    // iced_aw bundled icon font — used by ColorPicker (Cancel / OK
+    // glyphs) and other iced_aw widgets. Without this their action
+    // buttons render as empty rectangles.
+    .font(iced_aw::ICED_AW_FONT_BYTES)
+    // Default UI font resolves through the Preferences-panel pick. When
+    // it matches a bundled family ("Roboto" / "Iosevka") iced uses the
+    // embedded TTF directly; otherwise it falls back to a system font.
+    .default_font(iced::Font::with_name(Box::leak(
+        ui_font_name.into_boxed_str(),
+    )))
+    .run()
 }
