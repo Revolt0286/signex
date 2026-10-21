@@ -166,6 +166,51 @@ fn measure_text_bounds_px(buffer: &cryoglyph::Buffer) -> [f32; 2] {
     }
 }
 
+/// Shape `item`'s content into a buffer.
+fn shaped_buffer(
+    font_system: &mut cryoglyph::FontSystem,
+    item: &TextItem,
+    metrics: cryoglyph::Metrics,
+    attrs: &cryoglyph::Attrs<'_>,
+    viewport_px: [f32; 2],
+) -> cryoglyph::Buffer {
+    let mut buffer = cryoglyph::Buffer::new(font_system, metrics);
+    buffer.set_size(font_system, Some(viewport_px[0]), Some(viewport_px[1]));
+    buffer.set_text(
+        font_system,
+        &item.content,
+        attrs,
+        cryoglyph::Shaping::Advanced,
+        None,
+    );
+    buffer.shape_until_scroll(font_system, false);
+
+    // Single-line text is the same under every alignment inside its own width.
+    if item.h_align == TextHAlign::Left || buffer.layout_runs().count() < 2 {
+        return buffer;
+    }
+
+    // The block offset only anchors the bounding box; each line then aligns
+    // inside it, as the CPU replay does. The width stays the widest line's so
+    // that line is not moved or wrapped.
+    let block_w = measure_text_bounds_px(&buffer)[0];
+    buffer.set_size(font_system, Some(block_w), Some(viewport_px[1]));
+    let align = Some(cosmic_align(item.h_align));
+    for line in buffer.lines.iter_mut() {
+        line.set_align(align);
+    }
+    buffer.shape_until_scroll(font_system, false);
+    buffer
+}
+
+fn cosmic_align(h_align: TextHAlign) -> cryoglyph::cosmic_text::Align {
+    match h_align {
+        TextHAlign::Left => cryoglyph::cosmic_text::Align::Left,
+        TextHAlign::Center => cryoglyph::cosmic_text::Align::Center,
+        TextHAlign::Right => cryoglyph::cosmic_text::Align::Right,
+    }
+}
+
 /// `family` is the caller's canvas font family name. It used to be a
 /// hardcoded `Family::SansSerif`, which rendered schematic text in whatever
 /// the system served instead of the app's monospace canvas face — different
@@ -306,17 +351,13 @@ impl GlyphonTextPipeline {
             let font_px = text_size_px(text, scale_px_per_mm, size_policy);
             let metrics = cryoglyph::Metrics::new(font_px, (font_px * LINE_HEIGHT_EM).max(1.0));
             let attrs = attrs_for_item(text, family);
-            let mut buffer = cryoglyph::Buffer::new(font_system, metrics);
-
-            buffer.set_size(font_system, Some(viewport_width), Some(viewport_height));
-            buffer.set_text(
+            let buffer = shaped_buffer(
                 font_system,
-                &text.content,
+                text,
+                metrics,
                 &attrs,
-                cryoglyph::Shaping::Advanced,
-                None,
+                [viewport_width, viewport_height],
             );
-            buffer.shape_until_scroll(font_system, false);
 
             let anchor_px = text_position_px(text, scale_px_per_mm, offset_px);
             let text_bounds_px = measure_text_bounds_px(&buffer);
@@ -406,7 +447,7 @@ mod tests {
     use super::{
         alignment_offset_px, anchored_top_left_px, attrs_for_item, normalize_rotation_radians,
         overlap_ratio_by_smaller_area, rect_from_top_left_size, rect_intersects_viewport,
-        text_position_px, text_size_px, to_glyphon_color, viewport_bounds,
+        shaped_buffer, text_position_px, text_size_px, to_glyphon_color, viewport_bounds,
     };
     use crate::primitive::text::{TextHAlign, TextItem, TextVAlign};
 
@@ -535,6 +576,63 @@ mod tests {
         let anchored = anchored_top_left_px(&item, [100.0, 50.0], [20.0, 10.0]);
         assert!((anchored[0] - 110.0).abs() < 0.0001);
         assert!((anchored[1] - 30.0).abs() < 0.0001);
+    }
+
+    fn test_font_system() -> cryoglyph::FontSystem {
+        let font = include_bytes!("../../../signex-app/assets/fonts/Iosevka-Regular.ttf");
+        cryoglyph::FontSystem::new_with_fonts([cryoglyph::fontdb::Source::Binary(
+            std::sync::Arc::new(font.as_slice()),
+        )])
+    }
+
+    /// Left edge of each laid-out line's first glyph, and each line's width.
+    fn line_extents(h_align: TextHAlign, content: &str) -> Vec<(f32, f32)> {
+        let mut fs = test_font_system();
+        let item = TextItem {
+            content: content.to_string(),
+            position: [0.0, 0.0],
+            size_mm: 1.0,
+            color: [1.0; 4],
+            bold: false,
+            italic: false,
+            rotation: 0.0,
+            h_align,
+            v_align: TextVAlign::Top,
+        };
+        let metrics = cryoglyph::Metrics::new(20.0, 24.0);
+        let attrs = attrs_for_item(&item, "Iosevka");
+        let buffer = shaped_buffer(&mut fs, &item, metrics, &attrs, [800.0, 600.0]);
+        buffer
+            .layout_runs()
+            .map(|run| (run.glyphs.first().map_or(0.0, |g| g.x), run.line_w))
+            .collect()
+    }
+
+    #[test]
+    fn centred_multiline_aligns_each_line() {
+        let runs = line_extents(TextHAlign::Center, "WWWWWWWW\nWW");
+        let block_w = runs[0].1;
+        assert!(runs[0].0.abs() < 0.01, "widest line stays at block left");
+        let expected = (block_w - runs[1].1) / 2.0;
+        assert!(expected > 1.0);
+        assert!((runs[1].0 - expected).abs() < 0.01, "got {}", runs[1].0);
+    }
+
+    #[test]
+    fn right_multiline_aligns_each_line() {
+        let runs = line_extents(TextHAlign::Right, "WWWWWWWW\nWW");
+        let block_w = runs[0].1;
+        assert!(runs[0].0.abs() < 0.01);
+        assert!((runs[1].0 - (block_w - runs[1].1)).abs() < 0.01);
+    }
+
+    #[test]
+    fn left_and_single_line_are_unshifted() {
+        let left = line_extents(TextHAlign::Left, "WWWWWWWW\nWW");
+        assert!(left.iter().all(|r| r.0.abs() < 0.01));
+        let single = line_extents(TextHAlign::Center, "WWWW");
+        assert_eq!(single.len(), 1);
+        assert!(single[0].0.abs() < 0.01);
     }
 
     #[test]
