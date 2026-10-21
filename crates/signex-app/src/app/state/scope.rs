@@ -65,14 +65,15 @@ pub(crate) fn path_key(path: &Path, fold: CaseFold) -> String {
 fn project_listing_sheet<'a>(
     projects: &'a [LoadedProject],
     path: &Path,
+    fold: CaseFold,
 ) -> Option<&'a LoadedProject> {
-    let key = path_key(path, CaseFold::HOST);
+    let key = path_key(path, fold);
     projects.iter().find(|p| {
         let dir = p.dir();
         p.data
             .sheets
             .iter()
-            .any(|s| path_key(&dir.join(&s.filename), CaseFold::HOST) == key)
+            .any(|s| path_key(&dir.join(&s.filename), fold) == key)
     })
 }
 
@@ -85,7 +86,7 @@ fn project_listing_sheet<'a>(
 /// resolved child key, the first-wins tie-break (lexicographically-smallest
 /// parent path) is the same every run, matching the identical hazard fixed in
 /// `project_sheets::project_graph`.
-fn parent_of(loaded: &HashMap<PathBuf, Vec<String>>) -> HashMap<String, PathBuf> {
+fn parent_of(loaded: &HashMap<PathBuf, Vec<String>>, fold: CaseFold) -> HashMap<String, PathBuf> {
     let mut entries: Vec<(&PathBuf, &Vec<String>)> = loaded.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -94,7 +95,7 @@ fn parent_of(loaded: &HashMap<PathBuf, Vec<String>>) -> HashMap<String, PathBuf>
         let dir = parent_path.parent().unwrap_or_else(|| Path::new(""));
         for filename in child_refs {
             parents
-                .entry(path_key(&dir.join(filename), CaseFold::HOST))
+                .entry(path_key(&dir.join(filename), fold))
                 .or_insert_with(|| parent_path.clone());
         }
     }
@@ -112,15 +113,24 @@ pub(crate) fn project_owning_sheet<'a>(
     loaded: &HashMap<PathBuf, Vec<String>>,
     path: &Path,
 ) -> Option<&'a LoadedProject> {
-    if let Some(project) = project_listing_sheet(projects, path) {
+    project_owning_sheet_with(projects, loaded, path, CaseFold::HOST)
+}
+
+pub(crate) fn project_owning_sheet_with<'a>(
+    projects: &'a [LoadedProject],
+    loaded: &HashMap<PathBuf, Vec<String>>,
+    path: &Path,
+    fold: CaseFold,
+) -> Option<&'a LoadedProject> {
+    if let Some(project) = project_listing_sheet(projects, path, fold) {
         return Some(project);
     }
-    let parents = parent_of(loaded);
+    let parents = parent_of(loaded, fold);
     let mut seen: HashSet<String> = HashSet::new();
     let mut current = path.to_path_buf();
-    while seen.insert(path_key(&current, CaseFold::HOST)) {
-        let parent = parents.get(&path_key(&current, CaseFold::HOST))?;
-        if let Some(project) = project_listing_sheet(projects, parent) {
+    while seen.insert(path_key(&current, fold)) {
+        let parent = parents.get(&path_key(&current, fold))?;
+        if let Some(project) = project_listing_sheet(projects, parent, fold) {
             return Some(project);
         }
         current = parent.clone();
@@ -324,12 +334,25 @@ mod tests {
     }
 
     #[test]
-    fn host_default_follows_the_target_family() {
-        let expected = if cfg!(windows) {
-            CaseFold::Insensitive
-        } else {
-            CaseFold::Sensitive
+    fn ownership_follows_the_fold() {
+        // `.snxprj` records `Top.snxsch`; a tab was opened as `top.snxsch`.
+        let projects = vec![project(1, "/w/a", &["Top.snxsch"])];
+        let variant = PathBuf::from("/w/a/top.snxsch");
+        let owner = |fold| {
+            project_owning_sheet_with(&projects, &HashMap::new(), &variant, fold).map(|p| p.id)
         };
-        assert_eq!(CaseFold::HOST, expected);
+        assert_eq!(owner(CaseFold::Insensitive), Some(ProjectId(1)));
+        assert_eq!(owner(CaseFold::Sensitive), None);
+    }
+
+    #[test]
+    fn separator_variant_resolves_only_when_insensitive() {
+        let projects = vec![project(1, "C:/w/a", &["Top.snxsch"])];
+        let variant = PathBuf::from("c:\\w\\a\\top.snxsch");
+        let owner = |fold| {
+            project_owning_sheet_with(&projects, &HashMap::new(), &variant, fold).map(|p| p.id)
+        };
+        assert_eq!(owner(CaseFold::Insensitive), Some(ProjectId(1)));
+        assert_eq!(owner(CaseFold::Sensitive), None);
     }
 }

@@ -383,6 +383,15 @@ pub(crate) fn project_graph(
     base_dir: Option<&Path>,
     root: Option<&Path>,
 ) -> AssembledGraph {
+    project_graph_with(sheets, base_dir, root, CaseFold::HOST)
+}
+
+pub(crate) fn project_graph_with(
+    sheets: &HashMap<PathBuf, SchematicSheet>,
+    base_dir: Option<&Path>,
+    root: Option<&Path>,
+    fold: CaseFold,
+) -> AssembledGraph {
     let mut keyed_sheets: HashMap<signex_net::SheetKey, SchematicSheet> = HashMap::new();
     let mut key_to_path: HashMap<signex_net::SheetKey, PathBuf> = HashMap::new();
     let mut issues: Vec<signex_net::StitchIssue> = Vec::new();
@@ -398,7 +407,7 @@ pub(crate) fn project_graph(
         b_is_root.cmp(&a_is_root).then_with(|| a.cmp(b))
     });
     for path in paths {
-        let key = sheet_key(path, base_dir);
+        let key = sheet_key_with(path, base_dir, fold);
         if let Some(existing) = key_to_path.get(&key) {
             issues.push(signex_net::StitchIssue::SheetKeyCollision {
                 key: key.to_string(),
@@ -426,7 +435,7 @@ pub(crate) fn project_graph(
             let Some(child_path) = resolve_child_reference(dir, &cs.filename) else {
                 continue;
             };
-            let child_key = sheet_key(&child_path, base_dir);
+            let child_key = sheet_key_with(&child_path, base_dir, fold);
             if keyed_sheets.contains_key(&child_key) {
                 submap.insert(cs.filename.clone(), child_key);
             }
@@ -753,34 +762,30 @@ mod tests {
 
     #[test]
     fn case_fold_collision_between_two_loaded_paths_is_the_remaining_ambiguity() {
-        // The only ambiguity left after keying by resolved path: two DISTINCT
-        // loaded paths that differ only in case collapse onto one `SheetKey`
-        // where `path_key` folds — one sheet loses the slot entirely, so the
-        // caller must be told. `path_key` folds on `cfg!(windows)` only, so
-        // this asserts the two-key outcome everywhere else; see `sheet_key`
-        // for why that under-folds on a case-insensitive macOS volume.
+        // Two DISTINCT loaded paths that differ only in case collapse onto one
+        // `SheetKey` under `Insensitive`: one sheet loses the slot, so the
+        // caller must be told. Under `Sensitive` they stay two sheets.
         let mut sheets = HashMap::new();
         sheets.insert(PathBuf::from("/proj/A.snxsch"), sheet(0xA, &[]));
         sheets.insert(PathBuf::from("/proj/a.snxsch"), sheet(0xB, &[]));
+        let base = Some(Path::new("/proj"));
 
-        let graph = project_graph(&sheets, Some(Path::new("/proj")), None);
+        let folded = project_graph_with(&sheets, base, None, CaseFold::Insensitive);
+        assert_eq!(folded.sheets.len(), 1, "one key wins the collision");
+        assert_eq!(folded.issues.len(), 1, "the collision must not be silent");
+        assert!(matches!(
+            &folded.issues[0],
+            signex_net::StitchIssue::SheetKeyCollision { .. }
+        ));
+        // Sorted-path first-wins: "/proj/A.snxsch" < "/proj/a.snxsch".
+        assert_eq!(
+            folded.sheets.values().next().unwrap().uuid,
+            Uuid::from_u128(0xA)
+        );
 
-        if cfg!(windows) {
-            assert_eq!(graph.sheets.len(), 1, "one key wins the collision");
-            assert_eq!(graph.issues.len(), 1, "the collision must not be silent");
-            assert!(matches!(
-                &graph.issues[0],
-                signex_net::StitchIssue::SheetKeyCollision { .. }
-            ));
-            // Sorted-path first-wins: "/proj/A.snxsch" < "/proj/a.snxsch".
-            assert_eq!(
-                graph.sheets.values().next().unwrap().uuid,
-                Uuid::from_u128(0xA)
-            );
-        } else {
-            assert_eq!(graph.sheets.len(), 2, "unix paths are case-sensitive");
-            assert!(graph.issues.is_empty());
-        }
+        let verbatim = project_graph_with(&sheets, base, None, CaseFold::Sensitive);
+        assert_eq!(verbatim.sheets.len(), 2);
+        assert!(verbatim.issues.is_empty());
     }
 
     #[test]
@@ -1004,7 +1009,7 @@ mod tests {
     /// #536 — the root must survive a `SheetKey` collision.
     ///
     /// Reproducible on EVERY platform, not just Windows as the issue
-    /// first read. `path_key` folds case only under `cfg!(windows)`, but
+    /// first read. `path_key` may fold case, but
     /// `sheet_key` relativizes against `base` and falls back to the bare
     /// `file_name()` when a path is not under it. A sheet living outside
     /// the project directory therefore keys as `top.snxsch` and collides
