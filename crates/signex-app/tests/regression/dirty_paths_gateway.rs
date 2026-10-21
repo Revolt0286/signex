@@ -255,3 +255,92 @@ fn reset_duplicate_designators_marks_the_active_sheet_dirty() {
 
     assert_dirty(&app, &path, "Reset Duplicate Designators");
 }
+
+/// #669 — a dirty sheet whose tab was closed stays parked in `engines`
+/// (`close_tab_now`). Annotate must treat it as the open document it still
+/// is: number the parked engine in memory and keep it dirty, never write the
+/// user's unsaved edits to disk behind their back.
+#[test]
+fn annotate_numbers_a_parked_sheet_in_memory_and_never_writes_it() {
+    let dir = tempfile::Builder::new()
+        .prefix("annotate-parked")
+        .tempdir()
+        .expect("tempdir");
+    let root_path = dir.path().join("root.snxsch");
+    let parked_path = dir.path().join("parked.snxsch");
+
+    // The saved copy of the parked sheet: what is on disk and must stay there.
+    let mut on_disk =
+        signex_engine::Engine::new(sheet_with(vec![symbol(uuid::Uuid::new_v4(), "R1", 0.0)]))
+            .expect("engine");
+    on_disk.set_path(Some(parked_path.clone()));
+    on_disk.save().expect("seed the saved copy");
+    let saved_bytes = std::fs::read(&parked_path).expect("read saved copy");
+
+    // The unsaved edit the user parked: an extra, not-yet-annotated symbol.
+    let parked = signex_engine::Engine::new(sheet_with(vec![
+        symbol(uuid::Uuid::new_v4(), "R1", 0.0),
+        symbol(uuid::Uuid::new_v4(), "R?", 10.0),
+    ]))
+    .expect("engine");
+
+    let mut root_sheet = sheet_with(vec![symbol(uuid::Uuid::new_v4(), "C?", 0.0)]);
+    root_sheet
+        .child_sheets
+        .push(signex_types::schematic::ChildSheet {
+            uuid: uuid::Uuid::nil(),
+            name: String::new(),
+            filename: "parked.snxsch".to_string(),
+            position: Point::new(0.0, 0.0),
+            size: (0.0, 0.0),
+            stroke_width: 0.0,
+            fill: signex_types::schematic::FillType::None,
+            stroke_color: None,
+            fill_color: None,
+            fields_autoplaced: false,
+            pins: Vec::new(),
+            instances: Vec::new(),
+        });
+    let root = signex_engine::Engine::new(root_sheet).expect("engine");
+
+    let (mut app, _initial_task) = Signex::new();
+    app.document_state.engines.insert(root_path.clone(), root);
+    app.document_state
+        .engines
+        .insert(parked_path.clone(), parked);
+    app.document_state.dirty_paths.insert(parked_path.clone());
+    app.document_state.tabs.push(signex_app::app::TabInfo {
+        title: "root".to_string(),
+        path: root_path.clone(),
+        cached_document: None,
+        dirty: false,
+        project_id: None,
+        kind: signex_app::app::TabKind::Schematic,
+    });
+    app.document_state.active_tab = 0;
+    app.document_state.active_path = Some(root_path);
+
+    let _ = app.update(Message::Annotate(AnnotateMsg::Run(
+        signex_engine::AnnotateMode::ResetAndRenumber,
+    )));
+
+    let parked_refs: Vec<String> = app.document_state.engines[&parked_path]
+        .document()
+        .symbols
+        .iter()
+        .map(|s| s.reference.clone())
+        .collect();
+    assert!(
+        parked_refs.iter().all(|r| !r.ends_with('?')),
+        "the parked engine must carry the annotation, got {parked_refs:?}"
+    );
+    assert!(
+        app.document_state.dirty_paths.contains(&parked_path),
+        "the parked sheet still holds unsaved edits and must stay in `dirty_paths`"
+    );
+    assert_eq!(
+        std::fs::read(&parked_path).expect("read parked file"),
+        saved_bytes,
+        "Annotate must not write a parked sheet's unsaved edits to disk unasked"
+    );
+}
