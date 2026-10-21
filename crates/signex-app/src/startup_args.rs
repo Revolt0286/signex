@@ -27,12 +27,66 @@ where
         .collect()
 }
 
-/// [`document_paths`] over the real process argv and working directory.
+/// What the command line asks the process to do.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StartupAction {
+    /// `--version` / `-V`: print the version and exit without a window.
+    PrintVersion,
+    /// `--help` / `-h`: print usage and exit without a window.
+    PrintHelp,
+    /// Launch the GUI, opening these documents (possibly none).
+    Launch(Vec<PathBuf>),
+}
+
+/// Classify argv (without the program name). `--version` / `--help` win
+/// over everything else, in argument order, so the early-exit paths never
+/// need a display or GPU.
+pub fn startup_action<I>(args: I, cwd: &Path) -> StartupAction
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let args: Vec<OsString> = args.into_iter().collect();
+    for arg in &args {
+        match arg.to_str() {
+            Some("--version" | "-V") => return StartupAction::PrintVersion,
+            Some("--help" | "-h") => return StartupAction::PrintHelp,
+            _ => {}
+        }
+    }
+    StartupAction::Launch(document_paths(args, cwd))
+}
+
+/// Text printed by `--version`.
+pub fn version_text() -> String {
+    format!("signex {}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Text printed by `--help`.
+pub fn help_text() -> String {
+    [
+        version_text().as_str(),
+        "",
+        "Usage: signex [OPTIONS] [FILE]...",
+        "",
+        "Arguments:",
+        "  [FILE]...  Documents to open at startup (.snxsch, .snxpcb, .snxprj, ...)",
+        "",
+        "Options:",
+        "  -V, --version  Print the version and exit",
+        "  -h, --help     Print this help and exit",
+    ]
+    .join(
+        "
+",
+    )
+}
+
+/// [`startup_action`] over the real process argv and working directory.
 /// An unreadable working directory only costs relative-path resolution:
 /// absolute paths (what every OS launcher passes) still work.
-pub fn document_paths_from_env() -> Vec<PathBuf> {
+pub fn startup_action_from_env() -> StartupAction {
     let cwd = std::env::current_dir().unwrap_or_default();
-    document_paths(std::env::args_os().skip(1), &cwd)
+    startup_action(std::env::args_os().skip(1), &cwd)
 }
 
 #[cfg(test)]
@@ -96,5 +150,47 @@ mod tests {
             document_paths(args(&["notes.txt"]), cwd),
             vec![cwd.join("notes.txt")]
         );
+    }
+
+    #[test]
+    fn version_flag_requests_version_even_with_paths() {
+        let cwd = Path::new("/work");
+        assert_eq!(
+            startup_action(args(&["a.snxsch", "--version"]), cwd),
+            StartupAction::PrintVersion
+        );
+        assert_eq!(
+            startup_action(args(&["-V"]), cwd),
+            StartupAction::PrintVersion
+        );
+    }
+
+    #[test]
+    fn help_flag_requests_help() {
+        let cwd = Path::new("/work");
+        assert_eq!(
+            startup_action(args(&["--help"]), cwd),
+            StartupAction::PrintHelp
+        );
+        assert_eq!(startup_action(args(&["-h"]), cwd), StartupAction::PrintHelp);
+    }
+
+    #[test]
+    fn no_early_exit_flag_launches_with_the_paths() {
+        let cwd = Path::new("/work");
+        assert_eq!(
+            startup_action(args(&["--foo", "a.snxsch"]), cwd),
+            StartupAction::Launch(vec![cwd.join("a.snxsch")])
+        );
+        assert_eq!(
+            startup_action(args(&[]), cwd),
+            StartupAction::Launch(vec![])
+        );
+    }
+
+    #[test]
+    fn version_text_carries_the_crate_version() {
+        assert!(version_text().ends_with(env!("CARGO_PKG_VERSION")));
+        assert!(help_text().contains("--version"));
     }
 }

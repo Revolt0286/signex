@@ -5,6 +5,7 @@
 //! dispatchers without spinning up the iced runtime.
 
 use signex_app::app::Signex;
+use signex_app::startup_args::StartupAction;
 use signex_app::{diagnostics, fonts, startup_args};
 
 const IOSEVKA_REGULAR: &[u8] = include_bytes!("../assets/fonts/Iosevka-Regular.ttf");
@@ -13,16 +14,28 @@ const ROBOTO_REGULAR: &[u8] = include_bytes!("../assets/fonts/Roboto-Regular.ttf
 const ROBOTO_BOLD: &[u8] = include_bytes!("../assets/fonts/Roboto-Bold.ttf");
 
 fn main() -> iced::Result {
+    // `--version` / `--help` must answer before logging, fonts, iced or
+    // wgpu are touched, so they work on a machine with no display or GPU.
+    let startup_paths = match startup_args::startup_action_from_env() {
+        StartupAction::PrintVersion => {
+            println!("{}", startup_args::version_text());
+            return Ok(());
+        }
+        StartupAction::PrintHelp => {
+            println!("{}", startup_args::help_text());
+            return Ok(());
+        }
+        // File associations launch `signex <path>...` (#317). Read once;
+        // the boot closure hands each path to the normal open flow.
+        StartupAction::Launch(paths) => paths,
+    };
+
     if let Err(error) = diagnostics::init_logging() {
         eprintln!("[signex] failed to initialize logging: {error:#}");
     }
 
     // Read the persisted UI font preference (defaults to "Roboto").
     let ui_font_name = fonts::read_ui_font_pref();
-
-    // File associations launch `signex <path>...` (#317). Read once; the
-    // boot closure hands each path to the normal open flow.
-    let startup_paths = startup_args::document_paths_from_env();
 
     iced::daemon(
         move || Signex::boot(startup_paths.clone()),
