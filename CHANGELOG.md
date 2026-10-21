@@ -14,7 +14,7 @@ All notable changes to Signex ship here. Format follows [Keep a Changelog](https
 
 Each release section is authored **before** the `vX.Y.Z` tag is created, so the release workflow picks it up as the GitHub Release body. `.github/workflows/release.yml` ("Extract CHANGELOG entry for this tag") matches `## [X.Y.Z]` against the tag with the leading `v` stripped — so that heading line is load-bearing and must not be reworded.
 
-**Nothing enforces this.** A missing section is not an error — the workflow silently falls back to auto-generated notes, so a tag cut without a section still ships, just with a worse release page. This file previously cited `.claude/hooks/pre-release-guard.sh` as the enforcement; that path is gitignored and no such hook exists.
+**The release workflow enforces this.** A `vX.Y.Z` tag push fails before any build unless `scripts/check_release_version.sh` passes: the tag must equal `[workspace.package] version` in `Cargo.toml`, and CHANGELOG must hold a dated, not-`unreleased` `## [X.Y.Z]` section. The extractor's fallback to auto-generated notes for a missing section remains as a second line of defence. This file previously cited `.claude/hooks/pre-release-guard.sh` as the enforcement; that path is gitignored and no such hook exists.
 
 ## [Unreleased]
 
