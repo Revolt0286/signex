@@ -408,6 +408,28 @@ fn remove_dialog_flags_shared_library_as_outside_project() {
     assert!(dialog.is_outside_project, "Shared library is outside");
 }
 
+/// #139 — the dialog decides by kind too: a Shared library whose package
+/// sits inside the project folder must not be offered "Delete file".
+#[test]
+fn remove_dialog_flags_shared_library_inside_project_folder() {
+    let (mut app, tmp, _prj) = fixture_project_with_companions("Mike");
+    let lib_dir = tmp.path().join("Vendored.snxlib");
+    fs::create_dir(&lib_dir).expect("create package");
+    app.document_state.projects[0]
+        .data
+        .libraries
+        .push(signex_types::project::LibraryEntry {
+            path: lib_dir.clone(),
+            kind: signex_types::project::LibraryEntryKind::Shared,
+            library_id: None,
+        });
+
+    open_remove_dialog_for_label(&mut app, "Vendored.snxlib");
+
+    let dialog = app.ui_state.remove_dialog.as_ref().expect("dialog opened");
+    assert!(dialog.is_outside_project, "Shared kind wins over path");
+}
+
 #[test]
 fn remove_dialog_does_not_flag_project_local_library() {
     let (mut app, tmp, _prj) = fixture_project_with_companions("Lima");

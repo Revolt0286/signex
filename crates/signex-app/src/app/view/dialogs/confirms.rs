@@ -98,7 +98,7 @@ impl Signex {
         let exclude_card = option_card(
             "Exclude from project",
             if st.is_outside_project {
-                "Library is shared and lives outside this project. It will be excluded from the project and is not deleted from disk."
+                "Library is shared or lives outside this project's folder. It will be excluded from the project and is not deleted from disk."
             } else {
                 "File will be excluded from project but left in local folder. Not recommended for projects stored in version control."
             },

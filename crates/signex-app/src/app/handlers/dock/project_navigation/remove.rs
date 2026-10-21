@@ -72,8 +72,8 @@ impl Signex {
         if !contained || self.is_shared_library_target(&state.tree_path, target) {
             self.document_state.error_notice =
                 Some(crate::app::state::ErrorNotice::delete(format!(
-                    "\"{}\" is outside this project's folder (a shared library?), so it was \
-                     not deleted from disk. It has only been removed from the project.",
+                    "\"{}\" is a shared library or lives outside this project's folder, so \
+                     it was not deleted from disk. It has only been removed from the project.",
                     state.display_name
                 )));
             return;
