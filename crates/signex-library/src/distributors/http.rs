@@ -2,8 +2,8 @@
 //!
 //! Every adapter builds its `reqwest::blocking::Client` through
 //! [`client_builder`] so the connect and overall-request timeouts are
-//! defined once. Without them a stalled distributor endpoint would hang
-//! the calling thread forever.
+//! defined once. The 30 s overall bound matches reqwest's implicit blocking
+//! default but is now explicit; the 10 s connect cap is additional.
 
 use std::time::Duration;
 
