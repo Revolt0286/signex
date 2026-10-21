@@ -38,6 +38,7 @@ use uuid::Uuid;
 
 use crate::adapter::{HistoryEntry, LibraryAdapter, LibraryError, PrimitiveSummary};
 use crate::component::ComponentRow;
+use crate::git_identity::identity_for_repo;
 use crate::identity::{InternalPn, RowId};
 use crate::library_file::{LibraryFile, LibraryRow, LibraryTable, SnxlibManifest};
 use crate::manifest::{LibraryMeta, Manifest};
@@ -128,6 +129,11 @@ impl LocalGitAdapter {
         }
 
         let root_dir = parent_dir(&file_path)?;
+        if opts.enable_git {
+            // Fail before anything lands on disk when no user identity
+            // resolves, so a refused init leaves no half-made library.
+            crate::git_identity::identity_for_default_config()?;
+        }
         fs::create_dir_all(&root_dir)?;
 
         let library_file = LibraryFile {
@@ -151,7 +157,7 @@ impl LocalGitAdapter {
 
             let repo = git2::Repository::init(&root_dir)
                 .map_err(|e| LibraryError::Backend(format!("git init: {e}")))?;
-            let (sig_name, sig_email) = identity_for_repo(&repo);
+            let (sig_name, sig_email) = identity_for_repo(&repo)?;
             let sig = git2::Signature::now(&sig_name, &sig_email)
                 .map_err(|e| LibraryError::Backend(format!("git signature: {e}")))?;
 
@@ -256,7 +262,7 @@ impl LocalGitAdapter {
         // dialog is the gate; the adapter just does what it's asked.
         let repo = git2::Repository::init(&root_dir)
             .map_err(|e| LibraryError::Backend(format!("git re-init: {e}")))?;
-        let (sig_name, sig_email) = identity_for_repo(&repo);
+        let (sig_name, sig_email) = identity_for_repo(&repo)?;
         let sig = git2::Signature::now(&sig_name, &sig_email)
             .map_err(|e| LibraryError::Backend(format!("git signature: {e}")))?;
 

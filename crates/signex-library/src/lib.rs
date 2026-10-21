@@ -16,6 +16,8 @@ pub mod diff;
 pub mod distributor;
 #[cfg(feature = "distributors-community")]
 pub mod distributors;
+#[cfg(feature = "local-git")]
+pub mod git_identity;
 pub mod hash;
 pub mod identity;
 pub mod library_file;
@@ -159,17 +161,10 @@ pub fn enable_project_version_control(
         LibraryError::Backend(format!("git init: {e}"))
     })?;
 
-    // Identity for the commit — same fallback the LocalGitAdapter
-    // uses (env GIT_AUTHOR_NAME / EMAIL → repo config → "signex").
-    let cfg = repo.config().ok();
-    let sig_name = std::env::var("GIT_AUTHOR_NAME")
-        .ok()
-        .or_else(|| cfg.as_ref().and_then(|c| c.get_string("user.name").ok()))
-        .unwrap_or_else(|| "signex".to_string());
-    let sig_email = std::env::var("GIT_AUTHOR_EMAIL")
-        .ok()
-        .or_else(|| cfg.as_ref().and_then(|c| c.get_string("user.email").ok()))
-        .unwrap_or_else(|| "signex@localhost".to_string());
+    let (sig_name, sig_email) = git_identity::identity_for_repo(&repo).inspect_err(|_| {
+        cleanup(project_dir, wrote_lfs_attributes, wrote_gitignore);
+        let _ = std::fs::remove_dir_all(project_dir.join(".git"));
+    })?;
     let sig = git2::Signature::now(&sig_name, &sig_email)
         .map_err(|e| LibraryError::Backend(format!("git signature: {e}")))?;
 

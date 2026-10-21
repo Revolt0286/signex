@@ -2,6 +2,7 @@
 
 use super::helpers::*;
 use super::*;
+use crate::git_identity::identity_for_repo;
 
 impl LocalGitAdapter {
     fn primitive_dir(&self, kind: PrimitiveKind) -> PathBuf {
@@ -196,7 +197,7 @@ impl LocalGitAdapter {
         let _git_guard = self.git_lock.lock().unwrap_or_else(|e| e.into_inner());
         let repo = git2::Repository::open(&self.root_dir)
             .map_err(|e| LibraryError::Backend(format!("git open: {e}")))?;
-        let (sig_name, sig_email) = identity_for_repo(&repo);
+        let (sig_name, sig_email) = identity_for_repo(&repo)?;
         let sig = git2::Signature::now(&sig_name, &sig_email)
             .map_err(|e| LibraryError::Backend(format!("git signature: {e}")))?;
 
