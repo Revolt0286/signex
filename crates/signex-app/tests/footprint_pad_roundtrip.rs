@@ -179,6 +179,38 @@ fn typing_into_one_field_is_one_undo_step() {
 }
 
 #[test]
+fn same_field_on_two_footprints_is_two_undo_steps() {
+    let (mut app, path) = fixture("multi", Footprint::empty("a"));
+    app.document_state
+        .footprint_editors
+        .get_mut(&path)
+        .unwrap()
+        .file
+        .footprints
+        .push(Footprint::empty("b"));
+
+    panel(
+        &mut app,
+        PanelMsg::FpEditorSetFootprintDescription("for a".into()),
+    );
+    app.document_state
+        .footprint_editors
+        .get_mut(&path)
+        .unwrap()
+        .active_idx = 1;
+    panel(
+        &mut app,
+        PanelMsg::FpEditorSetFootprintDescription("for b".into()),
+    );
+
+    assert_eq!(
+        editor_of(&app, &path).history.len(),
+        2,
+        "editing B's description must not merge into A's undo step"
+    );
+}
+
+#[test]
 fn rejected_panel_input_keeps_the_redo_stack() {
     let (mut app, path) = fixture("redo_kept", Footprint::empty("redo_kept"));
     panel(

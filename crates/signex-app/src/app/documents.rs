@@ -431,13 +431,16 @@ pub struct FootprintEditorState {
     /// mutation that calls `push_history` so the redo lineage stays
     /// consistent with single-history-tree semantics.
     pub redo: Vec<FootprintHistorySnapshot>,
-    /// The field the last [`Self::record_edit`] changed. A text input
+    /// The field the last [`Self::record_edit`] changed, tagged with the
+    /// footprint it belonged to: a field key names a pad index or a
+    /// sketch id, which only identify something within one footprint of
+    /// a multi-footprint file. A text input
     /// fires one message per keystroke; while the same field keeps
     /// being edited, those edits share the one snapshot taken before
     /// the first of them, so typing a description is one undo step and
     /// does not push earlier edits out of the depth-capped history.
     /// Cleared by every other history push, undo and redo.
-    last_edit_key: Option<FieldEditKey>,
+    last_edit_key: Option<(FieldEditKey, usize)>,
 }
 
 /// Identifies one field of one target (a pad index, a sketch entity or
@@ -529,6 +532,7 @@ impl FootprintEditorState {
         key: Option<FieldEditKey>,
         edit: impl FnOnce(&mut Self) -> bool,
     ) -> bool {
+        let key = key.map(|field| (field, self.active_idx));
         let coalesce = key.is_some() && self.last_edit_key == key;
         let snap = (!coalesce).then(|| self.snapshot());
         if !edit(self) {
