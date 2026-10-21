@@ -19,6 +19,9 @@ impl Signex {
     /// (`handle_project_close_confirm`) calls back into this method
     /// once the user picks Save All or Discard All.
     pub(super) fn close_project_at_tree_path(&mut self, tree_path: &[usize]) -> Task<Message> {
+        // The gate reads `dirty_paths`; do not rely on every edit site
+        // having refreshed the panel context since its last footprint edit.
+        self.sync_footprint_dirty_paths();
         let Some(&project_idx) = tree_path.first() else {
             return Task::none();
         };
@@ -343,6 +346,9 @@ impl Signex {
     /// the main window, which the daemon turns into process exit via
     /// `SecondaryWindowClosed`.
     pub(crate) fn handle_app_quit_requested(&mut self) -> Task<Message> {
+        // Same hardening as `close_project_at_tree_path`: the quit gate
+        // must see footprint edits even if no panel refresh ran after them.
+        self.sync_footprint_dirty_paths();
         // Guard against a second close request stacking a duplicate
         // modal while the first is still up.
         if self.ui_state.app_quit_confirm.is_some() {
@@ -475,5 +481,68 @@ mod tests {
             format!("{err:#}").contains("can't be saved automatically"),
             "unexpected error: {err:#}",
         );
+    }
+
+    /// An app with one loaded project at `dir` and a footprint editor
+    /// flagged dirty WITHOUT any `refresh_panel_ctx` since — the state an
+    /// edit site that forgot the refresh leaves behind.
+    fn app_with_unsynced_dirty_footprint(dir: &std::path::Path) -> (Signex, PathBuf) {
+        let (mut app, _task) = Signex::new();
+        let id = app.document_state.mint_project_id();
+        app.document_state.projects.push(crate::app::LoadedProject {
+            id,
+            path: dir.join("p.snxprj"),
+            data: signex_types::project::ProjectData {
+                name: "p".into(),
+                dir: dir.to_string_lossy().into_owned(),
+                schematic_root: None,
+                pcb_file: None,
+                sheets: Vec::new(),
+                variant_definitions: Vec::new(),
+                active_variant: None,
+                libraries: Vec::new(),
+                enable_git: false,
+            },
+            pending_libraries: std::collections::HashMap::new(),
+        });
+        let path = dir.join("lib.snxlib").join("footprints").join("g.snxfpt");
+        let file =
+            signex_library::FootprintFile::from_footprint(signex_library::Footprint::empty("fp"));
+        let mut editor = crate::app::FootprintEditorState::new(path.clone(), file);
+        editor.dirty = true;
+        app.document_state
+            .footprint_editors
+            .insert(path.clone(), editor);
+        (app, path)
+    }
+
+    #[test]
+    fn quit_gate_sees_a_dirty_footprint_without_a_panel_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut app, path) = app_with_unsynced_dirty_footprint(dir.path());
+
+        let _ = app.handle_app_quit_requested();
+
+        let modal = app
+            .ui_state
+            .app_quit_confirm
+            .as_ref()
+            .expect("quit must prompt");
+        assert!(modal.dirty_paths.contains(&path));
+    }
+
+    #[test]
+    fn project_close_gate_sees_a_dirty_footprint_without_a_panel_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut app, path) = app_with_unsynced_dirty_footprint(dir.path());
+
+        let _ = app.close_project_at_tree_path(&[0]);
+
+        let modal = app
+            .ui_state
+            .project_close_confirm
+            .as_ref()
+            .expect("project close must prompt");
+        assert!(modal.dirty_paths.contains(&path));
     }
 }
