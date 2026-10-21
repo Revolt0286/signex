@@ -23,9 +23,12 @@ Each release section is authored **before** the `vX.Y.Z` tag is created, so the 
 - **GPU scene render path** — the PCB editor canvas can render traces, pads, vias, and zones through the `signex_gfx` wgpu pipelines via iced's `shader` widget instead of CPU `canvas::Frame` tessellation. Gated behind `feature_flags::PCB_GPU_RENDER` (default `false`) plus a Preferences toggle; the CPU path stays the default until GPU visual parity is confirmed on hardware.
 - **CPU↔GPU draw-order parity lock** — a shared `signex_gfx::scene::order` module defines the canonical bucket draw order both paths walk, so neither path can drift silently.
 
-### Fixed
+### Added — release workflow
 
 - **Release version guard** — the release workflow now runs `scripts/check_release_version.sh` before any build and fails unless the tag, `[workspace.package] version` in `Cargo.toml`, and a dated (not `unreleased`) `## [X.Y.Z]` CHANGELOG section all agree, printing all three values on a mismatch (#343).
+
+### Fixed
+
 - **GPU concave polygon fill** — the polygon pipeline fanned every contour from its first vertex, which is exact only for convex shapes; a concave copper pour/rule-area bridged triangles across the notch and painted copper where the pour had none. `append_fill` now triangulates via `signex_sketch::ear_clip`, matching the CPU `frame.fill` (lyon) result exactly (pinned by a shoelace-area regression test). Found and fixed a latent bug in `ear_clip` itself while wiring it up: a bridge edge created by clipping one ear could pass exactly through another still-remaining vertex, letting the algorithm approve an invalid ear and collapse the rest of the polygon into a self-intersecting remainder — `is_ear`'s occlusion test now also blocks on a non-corner vertex sitting exactly on the ear's boundary.
 - **GPU overlay z-order** — `gpu_scene()` folded overlay geometry (active-layer zone highlight, selection highlight, DRC markers, ratsnest) into the base `polygons`/`lines`/`circles` buckets, which the GPU draws before other base content — so an overlay meant to sit on top rendered underneath it. Overlays now stay in their own buffers and composite in a dedicated pass strictly after every base bucket, matching the CPU `draw_scene` overlay pass.
 - **GPU dashed lines** — `line.wgsl` declared the per-instance `style` field but never consumed it, so `RATSNEST_STYLE_DASHED` / keepout / DRC-overlay segments rendered solid on the GPU. The fragment shader now derives a dash/gap pattern from `camera.mm_per_px` (reproducing the CPU's literal 8px dash / 5px gap at any zoom) and discards the gap portions.
