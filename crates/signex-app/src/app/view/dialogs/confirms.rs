@@ -136,17 +136,15 @@ impl Signex {
                 )
                 .padding([14, 14]),
                 container(remove_options).padding([0, 14]),
-                container(
-                    row![
-                        Space::new().width(Length::Fill),
-                        secondary_button(
-                            "Cancel",
-                            Message::Remove(RemoveMsg::Close),
-                            text_c,
-                            border_c,
-                        ),
-                    ],
-                )
+                container(row![
+                    Space::new().width(Length::Fill),
+                    secondary_button(
+                        "Cancel",
+                        Message::Remove(RemoveMsg::Close),
+                        text_c,
+                        border_c,
+                    ),
+                ],)
                 .padding([14, 14]),
             ]
             .width(560),

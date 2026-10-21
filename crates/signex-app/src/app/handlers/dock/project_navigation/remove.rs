@@ -68,15 +68,10 @@ impl Signex {
             std::fs::remove_file(target)
         };
         if let Err(e) = result {
-            crate::diagnostics::log_error(
-                "Failed to delete project file",
-                &anyhow::anyhow!("{e}"),
-            );
-            self.document_state.error_notice =
-                Some(crate::app::state::ErrorNotice::delete(format!(
-                    "Could not delete \"{}\": {e}",
-                    state.display_name
-                )));
+            crate::diagnostics::log_error("Failed to delete project file", &anyhow::anyhow!("{e}"));
+            self.document_state.error_notice = Some(crate::app::state::ErrorNotice::delete(
+                format!("Could not delete \"{}\": {e}", state.display_name),
+            ));
         }
     }
 
