@@ -18,8 +18,9 @@ use uuid::Uuid;
 
 fn assert_btree_map<K, V>(_: &BTreeMap<K, V>) {}
 
-fn empty_sheet() -> SchematicSheet {
+pub(super) fn empty_sheet() -> SchematicSheet {
     SchematicSheet {
+        unknown: Default::default(),
         uuid: Uuid::nil(),
         version: 1,
         generator: "signex-test".into(),
@@ -42,7 +43,7 @@ fn empty_sheet() -> SchematicSheet {
     }
 }
 
-fn empty_board() -> PcbBoard {
+pub(super) fn empty_board() -> PcbBoard {
     PcbBoard {
         uuid: Uuid::nil(),
         version: 1,
@@ -222,8 +223,9 @@ fn snxpcb_includes_tsv_blocks_substring() {
     assert!(s.contains("[vias]\ncontent = \"\"\""));
 }
 
-fn sample_symbol() -> Symbol {
+pub(super) fn sample_symbol() -> Symbol {
     Symbol {
+        unknown: Default::default(),
         uuid: Uuid::parse_str("0192a8c0-0001-7000-8000-000000000001").unwrap(),
         lib_id: "lm2596.snxsym".to_string(),
         reference: "U1".to_string(),

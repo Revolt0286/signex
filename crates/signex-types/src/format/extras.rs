@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::unknown::UnknownFields;
 use crate::pcb::{Footprint, Pad, PcbBoard, Point as PcbPoint};
 use crate::schematic::{Junction, SchematicSheet, Symbol};
 
@@ -91,6 +92,9 @@ pub(in crate::format) struct SymbolExtras {
     pub(in crate::format) ref_text: Option<crate::schematic::TextProp>,
     #[serde(default)]
     pub(in crate::format) val_text: Option<crate::schematic::TextProp>,
+    /// Keys this build does not recognise (`[extras.symbols.<uuid>]`).
+    #[serde(flatten)]
+    pub(in crate::format) unknown: UnknownFields,
 }
 
 impl SymbolExtras {
@@ -114,6 +118,7 @@ impl SymbolExtras {
             && self.instances.is_empty()
             && self.ref_text.is_none()
             && self.val_text.is_none()
+            && self.unknown.is_empty()
     }
 
     pub(in crate::format) fn from_symbol(s: &Symbol) -> Self {
@@ -145,6 +150,7 @@ impl SymbolExtras {
             instances: s.instances.clone(),
             ref_text: s.ref_text.clone(),
             val_text: s.val_text.clone(),
+            unknown: s.unknown.clone(),
         }
     }
 }
@@ -174,6 +180,9 @@ pub(in crate::format) struct SheetExtras {
     pub(in crate::format) title_block: BTreeMap<String, String>,
     #[serde(default)]
     pub(in crate::format) lib_symbols: BTreeMap<String, crate::schematic::LibSymbol>,
+    /// Keys this build does not recognise (`[extras.sheet]`).
+    #[serde(flatten)]
+    pub(in crate::format) unknown: UnknownFields,
 }
 
 impl SheetExtras {
@@ -187,6 +196,7 @@ impl SheetExtras {
             && self.no_erc_directives.is_empty()
             && self.title_block.is_empty()
             && self.lib_symbols.is_empty()
+            && self.unknown.is_empty()
     }
 
     pub(in crate::format) fn from_sheet(s: &SchematicSheet) -> Self {
@@ -208,6 +218,7 @@ impl SheetExtras {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
+            unknown: s.unknown.extras.clone(),
         }
     }
 }

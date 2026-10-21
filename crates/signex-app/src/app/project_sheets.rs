@@ -616,6 +616,7 @@ mod tests {
 
     fn sheet(uuid: u128, children: &[&str]) -> SchematicSheet {
         SchematicSheet {
+            unknown: Default::default(),
             uuid: Uuid::from_u128(uuid),
             version: 0,
             generator: String::new(),

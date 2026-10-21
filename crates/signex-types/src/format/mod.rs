@@ -36,13 +36,15 @@ mod unknown;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod unknown_tests;
 
 // Public API re-exports — preserve the `format::…` import paths that
 // signex-app / signex-engine / signex-output rely on.
 pub use pcb_rows::{PcbFootprintRow, PcbPadRow, PcbTrackRow, PcbViaRow};
 pub use sch_rows::{SchComponentRow, SchJunctionRow, SchLabelRow, SchWireRow};
 pub use tsv::{parse_tsv_block, write_tsv_block};
-pub use unknown::UnknownFields;
+pub use unknown::{SheetUnknown, UnknownFields};
 
 // Subtree-internal helpers used by the container types below.
 use extras::{
@@ -176,6 +178,7 @@ impl SnxSchematic {
             generator_version: self.sheet.generator_version.clone(),
             paper_size: self.sheet.paper_size.clone(),
             root_sheet_page: self.sheet.root_sheet_page.clone(),
+            unknown: self.sheet.unknown.manifest.clone(),
         };
         out.push_str(&toml::to_string_pretty(&manifest)?);
         out.push('\n');
@@ -327,6 +330,10 @@ impl SnxSchematic {
             no_erc_directives: sheet_extras.no_erc_directives,
             title_block: sheet_extras.title_block.into_iter().collect(),
             lib_symbols: sheet_extras.lib_symbols.into_iter().collect(),
+            unknown: SheetUnknown {
+                manifest: raw.unknown,
+                extras: sheet_extras.unknown,
+            },
         };
 
         Ok(SnxSchematic {
@@ -350,6 +357,9 @@ struct SchManifest {
     paper_size: String,
     #[serde(default)]
     root_sheet_page: String,
+    /// Foreign manifest keys, re-emitted verbatim (see [`UnknownFields`]).
+    #[serde(flatten)]
+    unknown: UnknownFields,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -387,6 +397,10 @@ struct SchRaw {
     sheets: SchSheetsRaw,
     #[serde(default)]
     extras: Option<SchExtrasRaw>,
+    /// Foreign manifest keys; carried onto the sheet so they survive
+    /// the codec wrapper being discarded.
+    #[serde(flatten)]
+    unknown: UnknownFields,
 }
 
 // ---------------------------------------------------------------------------

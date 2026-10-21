@@ -42,6 +42,30 @@ impl UnknownFields {
     }
 }
 
+/// Foreign keys carried by a [`SchematicSheet`](crate::schematic::SchematicSheet),
+/// kept apart by the `.snxsch` section they were found in.
+///
+/// One flat bag per sheet would let a manifest key and an
+/// `[extras.sheet]` key of the same name overwrite each other, so each
+/// section owns its own bag and is re-emitted into the section it came
+/// from. (Per-symbol foreign keys live on the symbol itself.)
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SheetUnknown {
+    /// Top-level manifest keys (beside `format`, `schematic_id`, ...).
+    #[serde(default, skip_serializing_if = "UnknownFields::is_empty")]
+    pub manifest: UnknownFields,
+    /// Keys inside `[extras.sheet]`.
+    #[serde(default, skip_serializing_if = "UnknownFields::is_empty")]
+    pub extras: UnknownFields,
+}
+
+impl SheetUnknown {
+    /// `true` when no section holds a foreign key.
+    pub fn is_empty(&self) -> bool {
+        self.manifest.is_empty() && self.extras.is_empty()
+    }
+}
+
 impl Deref for UnknownFields {
     type Target = BTreeMap<String, toml::Value>;
 
