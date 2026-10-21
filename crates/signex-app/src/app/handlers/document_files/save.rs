@@ -268,7 +268,7 @@ impl Signex {
                 || self.document_state.tabs.iter().any(|tab| tab.path == path));
         if is_other_open_document {
             anyhow::bail!(
-                "save as {}: that file is already open in another tab",
+                "save as {}: that file is open in another tab or holds unsaved edits from a closed tab",
                 path.display()
             );
         }
