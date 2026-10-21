@@ -90,6 +90,19 @@ fn commits_use_the_user_identity_and_refuse_without_one() {
     assert!(matches!(&err, LibraryError::Backend(m) if m.contains("identity not configured")));
     assert!(!file.exists(), "no .snxlib written on refusal");
 
+    // --- No identity: re-init refuses before `git init` touches disk. ---
+    let rec_dir = tempfile::tempdir().unwrap();
+    let rec_file = rec_dir.path().join("rec.snxlib");
+    std::fs::write(&rec_file, "x").unwrap();
+    let err = LocalGitAdapter::recover_init(&rec_file)
+        .err()
+        .expect("recover_init must refuse");
+    assert!(matches!(&err, LibraryError::Backend(m) if m.contains("identity not configured")));
+    assert!(
+        !rec_dir.path().join(".git").exists(),
+        "no unborn .git/ left behind by a refused re-init"
+    );
+
     // --- With an identity: commits carry it, never a generic one. ---
     unsafe {
         std::env::set_var("GIT_AUTHOR_NAME", "Ada Lovelace");

@@ -256,6 +256,11 @@ impl LocalGitAdapter {
         }
         let root_dir = parent_dir(&file_path)?;
 
+        // Refuse before `git init` touches disk: an unresolvable user
+        // identity must not leave a fresh, unborn `.git/` behind (that
+        // would hide the GitMissing recovery on the next open).
+        crate::git_identity::identity_for_default_config()?;
+
         // `git2::Repository::init` is idempotent on an already-init'd
         // working tree, so this also handles the "git was *not*
         // deleted" case as a no-op + re-commit-everything. The recovery
