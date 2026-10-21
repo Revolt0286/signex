@@ -101,15 +101,30 @@ fn load_save_without_edit_is_byte_stable() {
 
 #[test]
 fn unknowns_survive_editing_an_unrelated_symbol() {
-    let mut sheet = load(&with_manifest_key());
+    let text = format!(
+        "{}
+[extras.sheet]
+future_sheet = 1
+
+[extras.symbols.{SYMBOL_UUID}]
+future_symbol_key = 42
+",
+        with_manifest_key()
+    );
+    let mut sheet = load(&text);
     let mut other = sample_symbol();
     other.uuid = Uuid::parse_str("0192a8c0-0001-7000-8000-000000000002").unwrap();
     other.reference = "R9".into();
     sheet.symbols.push(other);
-    sheet.symbols[0].reference = "U7".into();
-    let out = save(&sheet);
-    assert!(out.contains("vendor_annotation = \"important-data\""));
-    assert_eq!(load(&out).symbols.len(), 2);
+    sheet.symbols[1].reference = "R10".into();
+    let again = load(&save(&sheet));
+    assert_eq!(again.symbols.len(), 2);
+    assert_eq!(again.unknown, sheet.unknown);
+    assert!(!again.unknown.extras.is_empty());
+    assert!(!again.unknown.manifest.is_empty());
+    assert_eq!(again.symbols[0].unknown, sheet.symbols[0].unknown);
+    assert!(!again.symbols[0].unknown.is_empty());
+    assert!(again.symbols[1].unknown.is_empty());
 }
 
 #[test]
