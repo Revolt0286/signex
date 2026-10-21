@@ -44,6 +44,19 @@ fn annotate_and_save_unopened(
 }
 
 impl Signex {
+    /// Record that a non-active engine (a cached tab, or a parked engine whose
+    /// tab was closed) now holds unsaved edits. `tab.dirty` alone is not
+    /// enough: `dirty_paths` is what the quit guard, the tab-close engine
+    /// parking, the title-bar count and Save-All read, and a bare
+    /// `tab.dirty = true` never propagates into it (#585). Shared by Annotate
+    /// and Reset Duplicate Designators so the two cannot drift (#669).
+    fn mark_cached_sheet_dirty(&mut self, path: &std::path::Path) {
+        if let Some(tab) = self.document_state.tabs.iter_mut().find(|t| t.path == path) {
+            tab.dirty = true;
+        }
+        self.document_state.dirty_paths.insert(path.to_path_buf());
+    }
+
     pub(crate) fn handle_annotate(&mut self, mode: signex_engine::AnnotateMode) -> Task<Message> {
         // Share one per-prefix counter across every open sheet so designators
         // don't collide across sheets of the same project.
@@ -142,19 +155,7 @@ impl Signex {
                 });
                 match result {
                     Some(Ok(true)) => {
-                        if let Some(tab) = self
-                            .document_state
-                            .tabs
-                            .iter_mut()
-                            .find(|t| &t.path == path)
-                        {
-                            tab.dirty = true;
-                        }
-                        // `tab.dirty` alone is not enough: `dirty_paths` is what
-                        // the quit guard, the tab-close engine parking, the
-                        // title-bar count and Save-All read, and a bare
-                        // `tab.dirty = true` never propagates into it (#585).
-                        self.document_state.dirty_paths.insert(path.clone());
+                        self.mark_cached_sheet_dirty(path);
                         any_cached_changed = true;
                     }
                     Some(Err(error)) => {
@@ -340,25 +341,24 @@ impl Signex {
             );
             resets += 1;
         }
-        // Cached tabs — same ReplaceDocument path; each tab's own
-        // history records the reset.
-        let active_idx = self.document_state.active_tab;
-        let cached_paths: Vec<(usize, PathBuf)> = self
+        // Every other live engine of this project — a cached tab, or a dirty
+        // sheet whose tab was closed and whose engine is parked (#669). The
+        // project set counted parked engines (it prefers `engines`), so they
+        // must be reset too, in memory: never written behind the user's back.
+        // Driven by `engines`, not `tabs`; a loose engine from another
+        // project was never counted, so it is not reset either.
+        let active_path = self.document_state.active_path.clone();
+        let mut cached_paths: Vec<PathBuf> = self
             .document_state
-            .tabs
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, tab)| {
-                // Only this project's sheets: a loose tab from somewhere else
-                // was never counted, so it must not be reset either.
-                if idx == active_idx || !project_paths.contains(&tab.path) {
-                    None
-                } else {
-                    Some((idx, tab.path.clone()))
-                }
+            .engines
+            .keys()
+            .filter(|path| {
+                project_paths.contains(*path) && active_path.as_deref() != Some(path.as_path())
             })
+            .cloned()
             .collect();
-        for (idx, path) in cached_paths {
+        cached_paths.sort();
+        for path in cached_paths {
             let applied = self.document_state.engines.get_mut(&path).map(|engine| {
                 let mut sheet = engine.document().clone();
                 if !reset_in(&mut sheet, &duplicates) {
@@ -381,10 +381,7 @@ impl Signex {
                 }
             });
             if let Some(true) = applied {
-                if let Some(tab) = self.document_state.tabs.get_mut(idx) {
-                    tab.dirty = true;
-                }
-                self.document_state.dirty_paths.insert(path);
+                self.mark_cached_sheet_dirty(&path);
                 resets += 1;
             }
         }
