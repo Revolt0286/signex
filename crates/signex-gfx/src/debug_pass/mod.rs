@@ -204,7 +204,7 @@ async fn run_line_readback_smoke_pass(
     min_stroke_px: f32,
     sample_x_px: &[u32],
 ) -> Result<Vec<u8>, String> {
-    let samples: Vec<(u32, u32)> = sample_x_px.iter().map(|&x| (x, LINE_ROW)).collect();
+    let samples = row_samples(sample_x_px);
     run_readback_smoke_pass(ReadbackGeometry::Line(line), min_stroke_px, &samples).await
 }
 
@@ -217,7 +217,7 @@ async fn run_polygon_readback_smoke_pass(
     min_stroke_px: f32,
     sample_x_px: &[u32],
 ) -> Result<Vec<u8>, String> {
-    let samples: Vec<(u32, u32)> = sample_x_px.iter().map(|&x| (x, LINE_ROW)).collect();
+    let samples = row_samples(sample_x_px);
     run_readback_smoke_pass(ReadbackGeometry::Polygon(polygon), min_stroke_px, &samples).await
 }
 
@@ -225,13 +225,18 @@ async fn run_polygon_readback_smoke_pass(
 /// px/mm. `ARC_READBACK_PX * 4` bytes is a multiple of
 /// `wgpu::COPY_BYTES_PER_ROW_ALIGNMENT`, so rows need no padding.
 #[cfg(test)]
-pub(crate) const ARC_READBACK_PX: u32 = 64;
+pub(super) const ARC_READBACK_PX: u32 = 64;
 #[cfg(test)]
-pub(crate) const ARC_READBACK_SCALE: f32 = 4.0;
+pub(super) const ARC_READBACK_SCALE: f32 = 4.0;
 
 /// Row sampled by the line and polygon wrappers in their 128x8 target.
 #[cfg(test)]
 const LINE_ROW: u32 = 4;
+
+#[cfg(test)]
+fn row_samples(sample_x_px: &[u32]) -> Vec<(u32, u32)> {
+    sample_x_px.iter().map(|&x| (x, LINE_ROW)).collect()
+}
 
 /// The arc readback: the red channel at arbitrary `(x, y)` pixels of a
 /// [`ARC_READBACK_PX`] square target. The camera origin is world (0, 0) at the

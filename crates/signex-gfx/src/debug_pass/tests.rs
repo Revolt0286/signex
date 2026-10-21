@@ -494,8 +494,9 @@ fn grid_overlay_toggles_do_not_change_geometry_draw_work() {
 
 // Pixel proofs for `arc.wgsl`. The arc is centred at world (8, 8) mm with
 // radius 5 mm on a 64 px square at 4 px/mm, so the ring sits 20 px from pixel
-// (32, 32). Angles are world radians from +X, CCW-wrapped; world +Y runs down
-// the rows, so a world angle of +90 degrees lands BELOW the centre.
+// (32, 32). Angles are world radians from +X, increasing and wrapping; world
+// +Y runs down the rows, so +90 degrees lands BELOW the centre and an
+// increasing angle turns clockwise on screen.
 const ARC_CENTER_MM: f32 = 8.0;
 const ARC_RADIUS_MM: f32 = 5.0;
 
@@ -511,7 +512,7 @@ fn ring_arc(start_deg: f32, end_deg: f32) -> Arc {
     }
 }
 
-/// Pixel on the ring at `deg` (world angle from +X, CCW), the CPU convention.
+/// Pixel on the ring at `deg` (world angle, increasing from +X with Y down), the CPU convention.
 fn ring_px(deg: f32) -> (u32, u32) {
     let (sin, cos) = deg.to_radians().sin_cos();
     let to_px = |mm: f32| (mm * ARC_READBACK_SCALE).round() as u32;
@@ -549,7 +550,7 @@ fn a_quarter_arc_is_lit_in_its_sweep_and_dark_outside_it() {
     assert_dark(arc, &[-20.0, -45.0, -70.0, 135.0, 180.0, 225.0, 270.0]);
 }
 
-/// `330 -> 30` sweeps 60 degrees CCW through the 0/360 seam, not the 300
+/// `330 -> 30` sweeps 60 degrees of increasing angle through the 0/360 seam, not the 300
 /// degree complement.
 #[test]
 fn a_wrapped_arc_lights_the_side_through_the_seam() {
