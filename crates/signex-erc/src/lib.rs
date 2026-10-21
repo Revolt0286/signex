@@ -22,11 +22,15 @@ use signex_types::schematic::{Point, SchematicSheet, SelectedItem, SelectedKind}
 pub mod context;
 pub mod diagnostic;
 pub mod engine;
+#[cfg(test)]
+mod fixtures;
+mod overrides;
 pub mod rule;
 mod rules;
 
 pub use context::ErcContext;
 pub use diagnostic::Diagnostic;
+pub use overrides::apply_overrides;
 pub use rule::{AnalysisScope, Applicability, RuleDefinition, RuleId, RuleTarget};
 
 /// What kind of violation this is. Stable identifier that maps to a severity
@@ -82,8 +86,27 @@ impl RuleKind {
         }
     }
 
-    /// Default severity. Users can override per-rule in the Preferences
-    /// panel via `ui_state.erc_severity_override`.
+    /// Every built-in rule, in the order the ERC dialog lists them.
+    pub const ALL: [RuleKind; 12] = [
+        RuleKind::UnusedPin,
+        RuleKind::DuplicateRefDesignator,
+        RuleKind::HierPortDisconnected,
+        RuleKind::DanglingWire,
+        RuleKind::NetLabelConflict,
+        RuleKind::OrphanLabel,
+        RuleKind::BusBitWidthMismatch,
+        RuleKind::BadHierSheetPin,
+        RuleKind::MissingPowerFlag,
+        RuleKind::PowerPortShort,
+        RuleKind::SymbolOutsideSheet,
+        RuleKind::AmbiguousLabelAnchor,
+    ];
+
+    /// The one source of truth for a rule's severity: [`Diagnostic::new`]
+    /// stamps it on every diagnostic and the ERC dialog highlights it.
+    /// `BadHierSheetPin` is the sole rule that grades individual findings
+    /// below this level. Users override per rule via
+    /// `ui_state.erc_severity_override`; see [`apply_overrides`].
     pub fn default_severity(self) -> Severity {
         match self {
             RuleKind::DuplicateRefDesignator
@@ -95,9 +118,8 @@ impl RuleKind {
             | RuleKind::DanglingWire
             | RuleKind::NetLabelConflict
             | RuleKind::OrphanLabel
-            | RuleKind::MissingPowerFlag
             | RuleKind::AmbiguousLabelAnchor => Severity::Warning,
-            RuleKind::SymbolOutsideSheet => Severity::Info,
+            RuleKind::MissingPowerFlag | RuleKind::SymbolOutsideSheet => Severity::Info,
         }
     }
 }

@@ -8,25 +8,9 @@ impl Signex {
     pub(crate) fn handle_run_erc(&mut self) -> Task<Message> {
         let dsl_eval_fns = self.load_project_dsl_eval_fns();
         let overrides = self.ui_state.erc_severity_override.clone();
-        let apply_overrides =
-            |mut violations: Vec<signex_erc::Violation>| -> Vec<signex_erc::Violation> {
-                for v in &mut violations {
-                    if let Some(&sev) = overrides.get(&v.rule) {
-                        v.severity = sev;
-                    }
-                }
-                violations.retain(|v| v.severity != signex_erc::Severity::Off);
-                violations.sort_by_key(|v| {
-                    let bucket = match v.severity {
-                        signex_erc::Severity::Error => 0,
-                        signex_erc::Severity::Warning => 1,
-                        signex_erc::Severity::Info => 2,
-                        signex_erc::Severity::Off => 3,
-                    };
-                    (bucket, format!("{:?}", v.rule))
-                });
-                violations
-            };
+        let apply_overrides = |violations: Vec<signex_erc::Violation>| {
+            signex_erc::apply_overrides(violations, &overrides)
+        };
 
         let mut by_path: std::collections::HashMap<std::path::PathBuf, Vec<signex_erc::Violation>> =
             std::collections::HashMap::new();
