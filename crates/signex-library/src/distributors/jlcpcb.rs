@@ -5,8 +5,6 @@
 //! response (the JLCPCB parts catalogue is a curated subset of LCSC).
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use serde::Deserialize;
@@ -16,18 +14,18 @@ use crate::distributor::{
     DistributorAdapter, DistributorError, DistributorPart, DistributorSource,
 };
 use crate::distributors::cache::{DEFAULT_TTL, DistributorCache};
+use crate::distributors::throttle::Throttle;
 use crate::param::ParamMap;
 
 const JLCPCB_PROVIDER_KEY: &str = "jlcpcb";
 const JLCPCB_NAME: &str = "JLCPCB";
 const JLCPCB_DEFAULT_BASE: &str =
     "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/list";
-const THROTTLE_INTERVAL: Duration = Duration::from_secs(1);
 
 pub struct JlcpcbAdapter {
     base_url: String,
     cache: Option<DistributorCache>,
-    throttle: Mutex<Option<Instant>>,
+    throttle: Throttle,
     http: reqwest::blocking::Client,
 }
 
@@ -36,7 +34,7 @@ impl JlcpcbAdapter {
         Self {
             base_url: JLCPCB_DEFAULT_BASE.into(),
             cache,
-            throttle: Mutex::new(None),
+            throttle: Throttle::default(),
             http: super::http::build_client(),
         }
     }
@@ -45,22 +43,9 @@ impl JlcpcbAdapter {
         Self {
             base_url: base_url.into(),
             cache,
-            throttle: Mutex::new(None),
+            throttle: Throttle::default(),
             http: super::http::build_client(),
         }
-    }
-
-    fn polite_wait(&self) {
-        let mut guard = self.throttle.lock().expect("throttle mutex poisoned");
-        if let Some(prev) = *guard {
-            let elapsed = prev.elapsed();
-            if elapsed < THROTTLE_INTERVAL {
-                drop(guard);
-                std::thread::sleep(THROTTLE_INTERVAL - elapsed);
-                guard = self.throttle.lock().expect("throttle mutex poisoned");
-            }
-        }
-        *guard = Some(Instant::now());
     }
 
     fn http_post_json<B: serde::Serialize, T: for<'de> Deserialize<'de>>(
@@ -68,7 +53,7 @@ impl JlcpcbAdapter {
         url: &str,
         body: &B,
     ) -> Result<T, DistributorError> {
-        self.polite_wait();
+        self.throttle.wait();
         let resp = self
             .http
             .post(url)
