@@ -135,6 +135,59 @@ fn renaming_a_dirty_sheet_moves_its_dirty_marker_and_dirties_the_project() {
 }
 
 #[test]
+fn renaming_a_non_sheet_file_does_not_dirty_the_project() {
+    let tmp = TempDir::new().expect("tempdir");
+    let dir = tmp.path();
+    let prj_path = dir.join("Proj.snxprj");
+    let old = dir.join("R0603.snxfpt");
+    std::fs::write(&old, b"x").expect("write footprint");
+
+    let (mut app, _task) = Signex::new();
+    let id = app.document_state.mint_project_id();
+    app.document_state.projects.push(LoadedProject {
+        id,
+        path: prj_path.clone(),
+        data: ProjectData {
+            name: "Proj".to_string(),
+            dir: dir.to_string_lossy().into_owned(),
+            schematic_root: Some("Power.snxsch".to_string()),
+            pcb_file: None,
+            sheets: vec![SheetEntry {
+                name: "Power".to_string(),
+                filename: "Power.snxsch".to_string(),
+                symbols_count: 0,
+                wires_count: 0,
+                labels_count: 0,
+            }],
+            variant_definitions: Vec::new(),
+            active_variant: None,
+            libraries: Vec::new(),
+            enable_git: false,
+        },
+        pending_libraries: HashMap::new(),
+    });
+    app.document_state.active_project = Some(id);
+
+    app.ui_state.rename_dialog = Some(RenameDialogState {
+        target_path: old.clone(),
+        tree_path: vec![0],
+        buffer: "R0402.snxfpt".to_string(),
+        error: None,
+        is_project_rename: false,
+    });
+    let _ = app.update(Message::Rename(RenameMsg::Submit));
+
+    assert!(
+        dir.join("R0402.snxfpt").exists(),
+        "the rename itself must have happened"
+    );
+    assert!(
+        !app.document_state.dirty_paths.contains(&prj_path),
+        "renaming a file the project does not list must not dirty the .snxprj"
+    );
+}
+
+#[test]
 fn save_as_onto_another_open_sheet_is_refused() {
     let tmp = TempDir::new().expect("tempdir");
     let a = tmp.path().join("A.snxsch");

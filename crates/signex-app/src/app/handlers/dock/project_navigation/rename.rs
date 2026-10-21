@@ -114,18 +114,25 @@ impl Signex {
         if let (Some(old), Some(idx)) = (old_filename.as_ref(), owner_idx)
             && let Some(loaded) = self.document_state.projects.get_mut(idx)
         {
+            let mut changed = false;
             for entry in loaded.data.sheets.iter_mut() {
                 if &entry.filename == old {
                     entry.filename = new_name.to_string();
+                    changed = true;
                 }
             }
             if loaded.data.schematic_root.as_deref() == Some(old.as_str()) {
                 loaded.data.schematic_root = Some(new_name.to_string());
+                changed = true;
             }
             // The sheet list changed in memory; without the dirty bit
             // `save_active_project_if_dirty` never writes the .snxprj and
             // a reopened project points at a file that no longer exists.
-            self.document_state.dirty_paths.insert(loaded.path.clone());
+            // A rename that touched neither (a footprint, say) leaves the
+            // project file as it was and must not dirty it.
+            if changed {
+                self.document_state.dirty_paths.insert(loaded.path.clone());
+            }
         }
 
         // Update any open tabs + engine-map keys that pointed at the
