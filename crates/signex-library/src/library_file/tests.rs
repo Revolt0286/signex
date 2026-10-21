@@ -309,6 +309,57 @@ fn write_rejects_column_name_with_tab() {
     ));
 }
 
+fn single_cell_file(column: &str, cell: &str) -> LibraryFile {
+    let mut tables = BTreeMap::new();
+    tables.insert(
+        "t".into(),
+        LibraryTable {
+            columns: vec![column.into()],
+            rows: vec![make_row(&[column], &[cell])],
+            column_types: BTreeMap::new(),
+        },
+    );
+    LibraryFile {
+        manifest: fixture_manifest(),
+        tables,
+    }
+}
+
+#[test]
+fn write_rejects_column_name_with_triple_single_quote() {
+    let err = single_cell_file("bad'''col", "x").write().unwrap_err();
+    assert!(matches!(
+        err,
+        LibraryFileError::DisallowedTripleQuoteInColumn { .. }
+    ));
+}
+
+#[test]
+fn write_rejects_control_characters_toml_forbids_in_literal_strings() {
+    for bad in [
+        '\r', '\0', '\u{8}', '\u{b}', '\u{c}', '\u{e}', '\u{1f}', '\u{7f}',
+    ] {
+        let text = format!("a{bad}b");
+        let err = single_cell_file("a", &text).write().unwrap_err();
+        assert!(
+            matches!(err, LibraryFileError::DisallowedControlInCell { .. }),
+            "cell with {bad:?} must be rejected"
+        );
+        let err = single_cell_file(&text, "x").write().unwrap_err();
+        assert!(
+            matches!(err, LibraryFileError::DisallowedControlInColumn { .. }),
+            "column with {bad:?} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn write_accepts_non_ascii_cells_and_columns() {
+    let lib = single_cell_file("değer", "10 kΩ ±1%");
+    let text = lib.write().unwrap();
+    assert_eq!(LibraryFile::parse(&text).unwrap(), lib);
+}
+
 /// A direct port of the §1 plan example. Anchors the format against
 /// the spec doc so a future schema change has to update both.
 #[test]
@@ -670,4 +721,62 @@ fn column_order_preserved() {
     let s = lib.write().unwrap();
     let back = LibraryFile::parse(&s).unwrap();
     assert_eq!(back.tables["ordered"].columns, columns);
+}
+
+/// Names that are not valid TOML bare keys: the writer must quote them so
+/// the file it emits can be read back (issue #687).
+const AWKWARD_NAMES: &[&str] = &[
+    "Passive Resistors",
+    "dotted.name",
+    "say \"hi\"",
+    "back\\slash",
+    "it's",
+    "Dirençler",
+    "res[1]",
+    "a#b=c",
+    "  ",
+    "",
+];
+
+/// Every awkward name, used both as a table name and as a typed column
+/// name, survives `parse(write(x))` unchanged.
+#[test]
+fn round_trip_awkward_table_and_column_names() {
+    for name in AWKWARD_NAMES {
+        let columns = vec!["row_id".to_string(), (*name).to_string()];
+        let rows = vec![make_row(&["row_id", name], &["r1", "v"])];
+        let mut column_types = BTreeMap::new();
+        column_types.insert((*name).to_string(), ColumnType::Number);
+        let mut tables = BTreeMap::new();
+        tables.insert(
+            (*name).to_string(),
+            LibraryTable {
+                columns,
+                rows,
+                column_types,
+            },
+        );
+        let lib = LibraryFile {
+            manifest: fixture_manifest(),
+            tables,
+        };
+        let s = lib.write().unwrap();
+        let back = LibraryFile::parse(&s)
+            .unwrap_or_else(|e| panic!("name {name:?} did not read back: {e}\n{s}"));
+        assert_eq!(lib, back, "name {name:?}");
+    }
+}
+
+/// Control characters are legal in a table name (only columns and cells are
+/// TSV-constrained), so the key escaper must cover them too.
+#[test]
+fn round_trip_table_name_with_control_characters() {
+    let mut tables = BTreeMap::new();
+    tables.insert("tab\tand\nnewline".to_string(), fixture_table_resistors());
+    let lib = LibraryFile {
+        manifest: fixture_manifest(),
+        tables,
+    };
+    let s = lib.write().unwrap();
+    assert_eq!(lib, LibraryFile::parse(&s).unwrap());
 }

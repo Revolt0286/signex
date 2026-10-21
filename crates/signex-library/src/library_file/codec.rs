@@ -80,13 +80,67 @@ impl LibraryFile {
     /// backslashes survive without escaping noise. Tables are emitted in
     /// `BTreeMap` order — sorted by name.
     pub fn write(&self) -> Result<String, LibraryFileError> {
-        // Validate cells and column names before emitting. Catching here
-        // lets the caller see the offending table/row instead of a
-        // surprise round-trip mismatch later.
+        self.validate_for_write()?;
+
+        // Header section — toml-rs reorders root scalars before sub-tables
+        // automatically so `format` / `library_id` land at the top.
+        let mut out = toml::to_string_pretty(&self.manifest)?;
+        // Normalize trailing whitespace to exactly one `\n` so the table
+        // separator below is predictable.
+        let header_len = out.trim_end_matches('\n').len();
+        out.truncate(header_len);
+        out.push('\n');
+
+        for (name, table) in &self.tables {
+            out.push('\n');
+            out.push_str("[tables.");
+            out.push_str(&toml_key(name));
+            out.push_str("]\n");
+            out.push_str("tsv = '''\n");
+            out.push_str(&serialize_tsv(table));
+            out.push_str("'''\n");
+
+            // Optional `[tables.<name>.column_types]` sub-table — only
+            // emitted when at least one column declares a non-default
+            // type. Untyped tables stay clean.
+            if !table.column_types.is_empty() {
+                out.push('\n');
+                out.push_str("[tables.");
+                out.push_str(&toml_key(name));
+                out.push_str(".column_types]\n");
+                for (col, ty) in &table.column_types {
+                    out.push_str(&toml_key(col));
+                    out.push_str(" = \"");
+                    out.push_str(&ty.to_token());
+                    out.push_str("\"\n");
+                }
+            }
+        }
+
+        // Self-check: refuse a document our own parser cannot read back, so a
+        // bad table never reaches `atomic_write` / `commit_path` (#687).
+        if let Err(source) = LibraryFile::parse(&out) {
+            return Err(LibraryFileError::WrittenDocumentUnreadable {
+                reason: source.to_string(),
+            });
+        }
+        Ok(out)
+    }
+
+    /// Reject column names and cells that cannot live in a TSV block inside
+    /// a TOML `'''` literal string. Naming the offending table / row here
+    /// beats a surprise parse failure after the file is on disk.
+    fn validate_for_write(&self) -> Result<(), LibraryFileError> {
         for (name, table) in &self.tables {
             for column in &table.columns {
-                if column.contains('\t') || column.contains('\n') {
+                if has_disallowed_char(column) {
                     return Err(LibraryFileError::DisallowedControlInColumn {
+                        table: name.clone(),
+                        column: column.clone(),
+                    });
+                }
+                if column.contains("'''") {
+                    return Err(LibraryFileError::DisallowedTripleQuoteInColumn {
                         table: name.clone(),
                         column: column.clone(),
                     });
@@ -95,7 +149,7 @@ impl LibraryFile {
             for (idx, row) in table.rows.iter().enumerate() {
                 for column in &table.columns {
                     let cell = row.cells.get(column).map(String::as_str).unwrap_or("");
-                    if cell.contains('\t') || cell.contains('\n') {
+                    if has_disallowed_char(cell) {
                         return Err(LibraryFileError::DisallowedControlInCell {
                             table: name.clone(),
                             row_index: idx,
@@ -111,44 +165,41 @@ impl LibraryFile {
                 }
             }
         }
-
-        // Header section — toml-rs reorders root scalars before sub-tables
-        // automatically so `format` / `library_id` land at the top.
-        let mut out = toml::to_string_pretty(&self.manifest)?;
-        // Normalize trailing whitespace to exactly one `\n` so the table
-        // separator below is predictable.
-        let header_len = out.trim_end_matches('\n').len();
-        out.truncate(header_len);
-        out.push('\n');
-
-        for (name, table) in &self.tables {
-            out.push('\n');
-            out.push_str("[tables.");
-            out.push_str(name);
-            out.push_str("]\n");
-            out.push_str("tsv = '''\n");
-            out.push_str(&serialize_tsv(table));
-            out.push_str("'''\n");
-
-            // Optional `[tables.<name>.column_types]` sub-table — only
-            // emitted when at least one column declares a non-default
-            // type. Untyped tables stay clean.
-            if !table.column_types.is_empty() {
-                out.push('\n');
-                out.push_str("[tables.");
-                out.push_str(name);
-                out.push_str(".column_types]\n");
-                for (col, ty) in &table.column_types {
-                    out.push_str(col);
-                    out.push_str(" = \"");
-                    out.push_str(&ty.to_token());
-                    out.push_str("\"\n");
-                }
-            }
-        }
-
-        Ok(out)
+        Ok(())
     }
+}
+
+/// True for tab (the TSV separator) and every control character TOML
+/// forbids inside a literal multi-line string: U+0000-U+001F (newline
+/// included, a lone `\r` is not allowed either) and U+007F.
+fn has_disallowed_char(text: &str) -> bool {
+    text.chars().any(|c| c < '\u{20}' || c == '\u{7f}')
+}
+
+/// Render `name` as a TOML key: bare when it only uses `A-Za-z0-9_-`,
+/// otherwise a basic (double-quoted) string with every character that TOML
+/// forbids raw escaped. Table names and column names are user input, so an
+/// unquoted key would make the written file unreadable (#687).
+fn toml_key(name: &str) -> String {
+    let is_bare = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if is_bare {
+        return name.to_string();
+    }
+    let mut quoted = String::with_capacity(name.len() + 2);
+    quoted.push('"');
+    for c in name.chars() {
+        match c {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            c if c.is_control() => quoted.push_str(&format!("\\u{:04X}", c as u32)),
+            c => quoted.push(c),
+        }
+    }
+    quoted.push('"');
+    quoted
 }
 
 /// Parse TSV text into a [`LibraryTable`]. The first non-empty line is
