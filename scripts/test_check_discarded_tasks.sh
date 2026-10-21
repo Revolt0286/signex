@@ -55,6 +55,21 @@ run_case drop_lock_guard pass 'fn f() {
     drop(guard);
 }'
 
+run_case drop_same_name_other_fn pass 'fn a() {
+    let state = app.handle_x();
+    state
+}
+fn b() {
+    let state = lock.lock();
+    drop(state);
+}'
+
+run_case drop_rebound_to_guard pass 'fn f() {
+    let state = app.handle_x();
+    let state = lock.lock();
+    drop(state);
+}'
+
 run_case drop_in_trailing_test_mod pass 'fn f() {}
 #[cfg(test)]
 mod tests {

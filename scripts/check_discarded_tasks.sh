@@ -31,8 +31,12 @@
 #   - It also matches `drop(<recv>.handle_x(...))` (one line or wrapped) and
 #     `drop(x)` where `x` was bound earlier in the same file by a single-line
 #     `let x = <recv>.handle_...`. `drop(expr)` is not `let _ = expr`, so
-#     neither rustc nor the `let _` grep saw it (#627). Bare `drop(guard)` on
-#     anything else is left alone: lock guards make it legitimate.
+#     neither rustc nor the `let _` grep saw it. Bare `drop(guard)` on
+#     anything else is left alone: lock guards make it legitimate. Bindings
+#     are tracked per fn and cleared when the name is rebound.
+#     Still missed: `let t =` with the `handle_` call on the next line then
+#     `drop(t)`; `std::mem::drop(t)`; `drop(foo(self.handle_x()))`; and
+#     field-chain receivers such as `self.items.handle_x()`.
 #   - It matches `let _ = <receiver>.handle_<name>(...)` (or `::`), on one
 #     line OR rustfmt's line-wrapped `let _ =` / `    <receiver>.handle_
 #     <name>(...)` two-line form (see `find_discards` below) — the exact
@@ -155,6 +159,14 @@ find_discards() {
         # `drop(x)` where `x` was bound from a handle_ call earlier in this file.
         name = substr(trimmed, 6, RLENGTH - 6)
         if (name in task_vars) print NR
+      }
+      # Bindings are per-fn: forget them all at a fn boundary, and forget a
+      # name when it is rebound to anything that is not a handle_ call.
+      if (trimmed ~ /(^|[ \t])fn [A-Za-z_]/) delete task_vars
+      if (match(trimmed, /^let (mut )?[A-Za-z_][A-Za-z0-9_]*/)) {
+        rebind = substr(trimmed, RSTART, RLENGTH)
+        sub(/^let (mut )?/, "", rebind)
+        delete task_vars[rebind]
       }
       # `let [mut] x[: T] = <recv>.handle_...` — remember x for a later drop(x).
       if (match(trimmed, /^let (mut )?[A-Za-z_][A-Za-z0-9_]*(: [^=]+)? = ([A-Za-z_][A-Za-z0-9_]*)(\.|::)handle_/)) {
