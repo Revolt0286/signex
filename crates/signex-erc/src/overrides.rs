@@ -25,7 +25,7 @@ pub fn apply_overrides(
         }
     }
     violations.retain(|v| v.severity != Severity::Off);
-    violations.sort_by_key(|v| {
+    violations.sort_by_cached_key(|v| {
         let bucket = match v.severity {
             Severity::Error => 0,
             Severity::Warning => 1,
@@ -123,6 +123,22 @@ mod tests {
                 assert_eq!(v.display_name(), kind.label());
             }
         }
+    }
+
+    #[test]
+    fn converting_a_diagnostic_keeps_its_rule_id_not_the_placeholder_kind() {
+        // The compiler files a DSL rule under a placeholder built-in kind;
+        // the conversion must carry the diagnostic's own id, not rebuild one
+        // from that kind.
+        let mut d = crate::Diagnostic::new(
+            RuleKind::NetLabelConflict,
+            "user rule",
+            signex_types::schematic::Point::new(0.0, 0.0),
+        );
+        d.rule_id = crate::RuleId::user("my_rule");
+        let v = Violation::from(d);
+        assert_eq!(v.rule_id, crate::RuleId::user("my_rule"));
+        assert_eq!(v.builtin_kind(), None);
     }
 
     #[test]

@@ -64,7 +64,7 @@ impl Signex {
             )
         };
 
-        // Per-rule severity grid. one row per built-in rule × 4 severities.
+        // Per-rule severity grid: one row per built-in rule × 4 severities.
         let mut rule_rows = column![
             row![
                 text("Rule")
