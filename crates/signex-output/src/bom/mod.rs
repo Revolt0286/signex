@@ -193,7 +193,8 @@ fn build_bom_context(ctx: &ExportContext, opts: &BomOptions) -> BomContext {
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| sym.lib_id.clone());
 
-            let variant_fitted = resolve_variant_fitted(sym, opts.active_variant.as_deref());
+            let variant_fitted = resolve_active_variant_fitted(sym, opts.active_variant.as_deref());
+            let base_fitted = resolve_base_variant_fitted(sym);
 
             let mut custom = sym
                 .fields
@@ -217,6 +218,7 @@ fn build_bom_context(ctx: &ExportContext, opts: &BomOptions) -> BomContext {
                 in_bom: sym.in_bom,
                 on_board: sym.on_board,
                 variant_fitted,
+                base_fitted,
                 custom,
             });
         }
@@ -440,25 +442,18 @@ fn resolve_variant_fitted_from_fields(
         .map(|(_, fitted)| fitted)
 }
 
-fn resolve_variant_fitted(
+/// Fit state from the active variant's own override for `symbol`, if any.
+/// Base fields are resolved separately by `resolve_base_variant_fitted`.
+fn resolve_active_variant_fitted(
     symbol: &signex_types::schematic::Symbol,
     active_variant: Option<&str>,
 ) -> Option<bool> {
-    if let Some(active_variant) = active_variant {
-        let active_variant = active_variant.trim();
-        if !active_variant.is_empty() {
-            if let Some(property_override) =
-                resolve_variant_fitted_from_property_overrides(symbol, active_variant)
-            {
-                return Some(property_override);
-            }
-            if let Some(from_fields) = resolve_variant_fitted_from_fields(symbol, active_variant) {
-                return Some(from_fields);
-            }
-        }
+    let active_variant = active_variant?.trim();
+    if active_variant.is_empty() {
+        return None;
     }
-
-    resolve_base_variant_fitted(symbol)
+    resolve_variant_fitted_from_property_overrides(symbol, active_variant)
+        .or_else(|| resolve_variant_fitted_from_fields(symbol, active_variant))
 }
 
 // ============================================================================
@@ -504,6 +499,13 @@ mod tests {
     use signex_types::property::SchematicProperty;
     use signex_types::schematic::{Point, SchematicSheet, Symbol};
     use uuid::Uuid;
+
+    /// The fit override `BomComponent::is_fitted` applies: the active
+    /// variant's, else the base fields'.
+    fn resolve_variant_fitted(symbol: &Symbol, active_variant: Option<&str>) -> Option<bool> {
+        resolve_active_variant_fitted(symbol, active_variant)
+            .or_else(|| resolve_base_variant_fitted(symbol))
+    }
 
     fn test_symbol() -> Symbol {
         Symbol {
@@ -639,6 +641,53 @@ mod tests {
                         .iter()
                         .any(|issue| { issue.rule == rule && issue.references == vec!["R5"] })
                 );
+            }
+        }
+        Ok(())
+    }
+
+    /// Fit state read from the symbol's own base fields must not override its
+    /// DNP flag; only the active variant's override may (#674 review).
+    #[test]
+    fn base_fit_fields_do_not_bypass_dnp() -> Result<(), BomError> {
+        let base_fit_fields = [
+            ("Fitted", "yes", false),
+            ("VariantFitted", "1", false),
+            ("DNP", "No", false),
+            ("VariantFitted", "1", true),
+        ];
+        for (key, value, as_property) in base_fit_fields {
+            let mut ctx = base_dnp_variant_context(false);
+            let symbol = &mut ctx.sheets[0].schematic.symbols[0];
+            symbol.fields.remove("Fitted@ProA");
+            if as_property {
+                symbol.custom_properties.push(SchematicProperty {
+                    key: key.to_string(),
+                    value: value.to_string(),
+                    ..Default::default()
+                });
+            } else {
+                symbol.fields.insert(key.to_string(), value.to_string());
+            }
+
+            for active_variant in [None, Some("ProA".to_string())] {
+                let opts = BomOptions {
+                    active_variant,
+                    ..BomOptions::default()
+                };
+                let case = format!("{key}={value} (property: {as_property}), {opts:?}");
+                assert!(rollup(&ctx, &opts).rows.is_empty(), "{case}");
+                let output = BomExporter.export(&ctx, &opts)?;
+                assert!(output.validation_report.issues.is_empty(), "{case}");
+
+                // Including DNP parts still counts the base fit state, as before.
+                let opts = BomOptions {
+                    include_dnp: true,
+                    ..opts
+                };
+                let table = rollup(&ctx, &opts);
+                assert_eq!(table.rows.len(), 1, "{case}");
+                assert_eq!(table.rows[0].fitted_qty, 1, "{case}");
             }
         }
         Ok(())

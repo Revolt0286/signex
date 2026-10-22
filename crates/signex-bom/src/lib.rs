@@ -22,22 +22,26 @@ pub struct BomComponent {
     pub dnp: bool,
     pub in_bom: bool,
     pub on_board: bool,
-    /// Variant override for fitted state.
-    /// `None` means fallback to base schematic flags.
+    /// Fitted state set by the active variant's own override for this part.
+    /// `None` means the variant does not override it.
     pub variant_fitted: Option<bool>,
+    /// Fitted state from the part's own base fields (`Fitted`, `DNP`, ...),
+    /// used when the variant does not override it.
+    pub base_fitted: Option<bool>,
     pub custom: BTreeMap<String, String>,
 }
 
 impl BomComponent {
-    /// Whether this component passes the DNP filter.
-    /// An explicit fitted override takes precedence over the base DNP flag;
-    /// other BOM inclusion filters still apply.
+    /// Whether this component passes the DNP filter. Only the active
+    /// variant's fitted override lets a DNP part through; base fields do not.
+    /// The other BOM inclusion filters still apply.
     pub fn passes_dnp_filter(&self, include_dnp: bool) -> bool {
         include_dnp || !self.dnp || self.variant_fitted == Some(true)
     }
 
     pub fn is_fitted(&self) -> bool {
         self.variant_fitted
+            .or(self.base_fitted)
             .unwrap_or(!self.dnp && self.in_bom && self.on_board)
     }
 }
@@ -392,6 +396,7 @@ mod tests {
             in_bom: true,
             on_board: true,
             variant_fitted: None,
+            base_fitted: None,
             custom: BTreeMap::new(),
         }
     }
@@ -593,6 +598,25 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn only_the_variant_override_bypasses_dnp() {
+        let dnp = |variant_fitted, base_fitted| BomComponent {
+            dnp: true,
+            variant_fitted,
+            base_fitted,
+            ..component("R5", "10k", "R_0603")
+        };
+        assert!(dnp(Some(true), None).passes_dnp_filter(false));
+        assert!(dnp(Some(true), Some(false)).passes_dnp_filter(false));
+        assert!(!dnp(None, Some(true)).passes_dnp_filter(false));
+        assert!(!dnp(Some(false), Some(true)).passes_dnp_filter(false));
+
+        // The fitted state itself still takes the variant, then the base fields.
+        assert!(dnp(None, Some(true)).is_fitted());
+        assert!(!dnp(Some(false), Some(true)).is_fitted());
+        assert!(!dnp(None, None).is_fitted());
     }
 
     #[test]

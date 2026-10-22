@@ -39,6 +39,10 @@ Each release section is authored **before** the `vX.Y.Z` tag is created, so the 
 - **Preferences dirty-tracking (review #308 findings 1-2)** — `preferences_draft_differs()` compared only the 7 appearance drafts, so theme import (a same-tag `custom_theme` content swap), a pending keymap rebind, or a component-class edit could get silently clobbered back to "clean" by the next unrelated appearance-draft change, letting Close discard it with no prompt. A `preferences_dirty_sticky` flag now pins the one imperative edit the comparator structurally cannot see (theme import); `preferences_has_unsaved_changes()` (`sticky || comparator`) is the single source every dismiss route checks. Every dismiss route — the in-dialog X, Esc, and an OS close request (Alt+F4 / native ✕) on the detached Preferences window — now refuses to close while dirty instead of silently reverting.
 - **Dropped-`Task` gate hole (#627)** — `check_discarded_tasks.sh` now also flags `drop(<task>)` of a `handle_*` result or a Task-typed binding, which walked past both `unused_must_use = "deny"` and the `let _ =` grep; the one site (a test in `open_document.rs`) now asserts on the Task instead.
 
+### Fixed — BOM
+
+- **A variant can fit a part marked DNP (#674)** — a part with DNP set in the base schematic was left out of a variant's BOM even when that variant fitted it, because the DNP filter ran before the variant was read; export validation skipped it the same way. Only the active variant's own override now lets a DNP part through. A leftover `Fitted`, `VariantFitted` or `DNP` field on the part does not, with or without an active variant.
+
 ### Changed
 
 - **The god-file cap is now 1200 lines**, up from 1000. It still counts physical lines, comments included. Long explanations belong in `docs/` with a one-line pointer in the code (CONTRIBUTING.md, "Code Style"), so a documented file is not forced into a split it does not need.
