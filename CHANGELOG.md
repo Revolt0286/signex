@@ -18,6 +18,16 @@ Each release section is authored **before** the `vX.Y.Z` tag is created, so the 
 
 ## [Unreleased]
 
+### Added — start screen
+
+- **Actionable start screen** — with nothing loaded, the empty centre region now shows the product name and version with **New Project**, **Open Project…** and **Keyboard Shortcuts (F1)** buttons, all dispatching existing menu messages and styled from `ThemeTokens`. A loaded project with no document selected keeps its own quieter hint. Open Sample Project and recent projects are left out until those features land (#331).
+### Added — ERC
+
+- **File ▸ Export ▸ ERC Report** writes the cached ERC results as plain text or
+  CSV (chosen by the saved file's extension), in the Messages panel's row order.
+  It never runs ERC; before a run it shows a message instead of writing a file.
+  `signex_output::ErcReportExporter` also offers a minimum-severity filter and
+  group-by-sheet. CSV fields are escaped by the BOM's shared helper (#351).
 ### Added — native-format test corpus
 
 - **Fixture-corpus round-trip harness** — `signex-types/tests/round_trip_corpus.rs` walks the checked-in `.snxsch` / `.snxpcb` goldens under `tests/corpus/` and asserts each parses, and re-saves byte-identically (which also implies a second parse -> write -> parse hop is stable); every failing fixture is listed with its path and first differing line. `SIGNEX_BLESS_CORPUS=1` rewrites fixtures for an intentional format change, and a `MIN_CORPUS_FILES` guard stops the corpus shrinking silently (#334).
@@ -43,6 +53,7 @@ Each release section is authored **before** the `vX.Y.Z` tag is created, so the 
 
 ### Fixed
 
+- **`cargo deny check` is green again** — upgraded the vulnerable dependency paths (quick-xml 0.41, git2 0.21, rust_xlsxwriter 0.101 / zip 9, pdf-extract 0.12 / lopdf 0.42, plus lockfile bumps of anyhow, h2, rustls, rustls-webpki, webpki-roots, webbrowser, crossbeam-epoch); the remaining unmaintained-crate notices (core2, instant, paste, rustybuzz, ttf-parser, zbus_names, zvariant, zvariant_derive) carry narrow, dated `deny.toml` ignores. (#148)
 - **Symbol Locked / DNP toggles (#597)** — the Properties panel "Locked" and "DNP" checkboxes landed in an empty match arm and did nothing. They now go through the engine (`SetSymbolLocked` / `SetSymbolDnp`), mark the sheet dirty, refresh the selection info, persist, and undo as one step each. Locked is stored and undoable but not yet enforced on move/delete.
 - **Project netlist rooted at the project's root sheet** — the cached canvas/ERC netlist was rooted at whichever sheet tab was focused, so focusing a child sheet silently dropped every net only the parent carries. Both it and the export scope now resolve one shared root: the project's `schematic_root`, falling back to the active sheet only for a loose document or a project with no declared root (#338). That last fallback is no longer silent: the netlist refresh and the export log a warning naming the project and the sheet it rooted at (#338).
 - **ERC DSL rules keep their own identity** — `Violation` now carries `rule_id` (`builtin::<slug>` or `user::<name>`). DSL rules were force-filed under a built-in `RuleKind`, so the Messages panel labelled them as that built-in, a built-in severity override rewrote their declared severity, and setting it to Off hid them (and a DSL pin rule offered "Add No-Connect"). Overrides, panel labels and the quick fix now resolve through `RuleId::builtin_kind`; the preferences file and built-in output are unchanged.
@@ -71,6 +82,7 @@ Each release section is authored **before** the `vX.Y.Z` tag is created, so the 
 ### Fixed — BOM
 
 - **A variant can fit a part marked DNP (#674)** — a part with DNP set in the base schematic was left out of a variant's BOM even when that variant fitted it, because the DNP filter ran before the variant was read; export validation skipped it the same way. Only the active variant's own override now lets a DNP part through. A leftover `Fitted`, `VariantFitted` or `DNP` field on the part does not, with or without an active variant.
+- **Library actions no longer silently do nothing (#152)** — Components Panel "Add Library" on the Project section and a failed Installed/Global mount now raise the error card, a failed `global_libraries.toml` write is reported, "Refresh All Pricing" is shown disabled ("Not yet available") instead of logging a TODO, and the never-emitted Manage/Add-to-Project/row-refresh stub messages are removed.
 
 ### Changed
 
