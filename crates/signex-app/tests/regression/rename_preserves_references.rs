@@ -261,3 +261,53 @@ fn a_project_library_cannot_be_renamed_from_the_tree() {
     assert!(lib.exists());
     assert!(f.app.document_state.dirty_paths.is_empty());
 }
+
+#[test]
+fn save_all_after_renaming_a_child_persists_parent_and_project_references() {
+    use signex_app::app::{ProjectCloseChoice, ProjectMsg, WindowMsg};
+
+    let mut f = fixture();
+    // Real project file so the save half has something valid to rewrite.
+    fs::write(
+        &f.prj,
+        serde_json::to_vec(&f.app.document_state.projects[0].data).expect("serialise prj"),
+    )
+    .expect("write prj");
+    assert!(
+        !f.app.document_state.engines.contains_key(&f.root),
+        "precondition: the parent sheet is not open"
+    );
+
+    submit_rename(&mut f.app, &f.child, "renamed.snxsch");
+
+    let _ = f.app.update(Message::Window(WindowMsg::CloseMainWindow));
+    assert!(
+        f.app.ui_state.app_quit_confirm.is_some(),
+        "dirty parent + project open the quit confirm"
+    );
+    let _ = f.app.update(Message::Project(ProjectMsg::AppQuitConfirm(
+        ProjectCloseChoice::SaveAll,
+    )));
+
+    assert!(
+        f.app.document_state.error_notice.is_none(),
+        "Save All must not report a failure: {:?}",
+        f.app.document_state.error_notice
+    );
+    assert!(f.app.document_state.dirty_paths.is_empty());
+
+    let text = fs::read_to_string(&f.root).expect("read root");
+    let root = signex_types::format::SnxSchematic::parse(&text)
+        .expect("parse saved root")
+        .sheet;
+    let refs: Vec<&str> = root
+        .child_sheets
+        .iter()
+        .map(|c| c.filename.as_str())
+        .collect();
+    assert_eq!(refs, vec!["renamed.snxsch"], "parent on disk is re-pointed");
+
+    let prj = signex_types::project::parse_project(&f.prj).expect("parse saved prj");
+    assert!(prj.sheets.iter().any(|s| s.filename == "renamed.snxsch"));
+    assert!(!prj.sheets.iter().any(|s| s.filename == "child.snxsch"));
+}

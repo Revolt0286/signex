@@ -179,14 +179,9 @@ impl Signex {
 
         let failures = self.apply_reference_rewrites(&rewrites);
         if !failures.is_empty() {
-            self.document_state.error_notice =
-                Some(crate::app::state::ErrorNotice::rename(format!(
-                    "The file was renamed, but {} sheet reference(s) could not be                      updated and still point at the old name:
-  {}",
-                    failures.len(),
-                    failures.join("
-  ")
-                )));
+            self.document_state.error_notice = Some(crate::app::state::ErrorNotice::rename(
+                super::sheet_references::rename_incomplete_detail(&failures),
+            ));
         }
 
         self.ui_state.rename_dialog = None;

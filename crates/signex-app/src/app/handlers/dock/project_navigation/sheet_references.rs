@@ -30,6 +30,17 @@ fn with_new_leaf(filename: &str, new_name: &str) -> String {
     }
 }
 
+/// Detail line for the "Rename Incomplete" card: the file moved, but these
+/// parent references could not be re-pointed (one entry per failure).
+pub(super) fn rename_incomplete_detail(failures: &[String]) -> String {
+    format!(
+        "The file was renamed, but {} sheet reference(s) could not be updated \
+         and still point at the old name:\n  {}",
+        failures.len(),
+        failures.join("\n  ")
+    )
+}
+
 impl Signex {
     /// Every parent reference, across the owning project's sheets, that
     /// resolves to `old_path`. Must run BEFORE the file is renamed on disk so
@@ -135,7 +146,23 @@ impl Signex {
 
 #[cfg(test)]
 mod tests {
-    use super::with_new_leaf;
+    use super::{rename_incomplete_detail, with_new_leaf};
+
+    #[test]
+    fn rename_incomplete_detail_is_clean_text() {
+        let detail =
+            rename_incomplete_detail(&["a.snxsch — x".to_string(), "b.snxsch — y".to_string()]);
+        assert_eq!(
+            detail,
+            "The file was renamed, but 2 sheet reference(s) could not be updated \
+             and still point at the old name:\n  a.snxsch — x\n  b.snxsch — y"
+        );
+        let first_line = detail.lines().next().expect("first line");
+        assert!(
+            !first_line.contains("  "),
+            "no runs of spaces: {first_line}"
+        );
+    }
 
     #[test]
     fn leaf_replacement_keeps_directory_prefix() {
