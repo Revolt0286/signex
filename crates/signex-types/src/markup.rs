@@ -752,6 +752,9 @@ mod tests {
         }
     }
 
+    /// Pins existing behaviour, not a spec decision: outside a span only a
+    /// sigil can be escaped (`\µA` keeps its backslash), while inside a span
+    /// any character can (`*\Ölçüm*` gives `Ölçüm`).
     #[test]
     fn unicode_and_ascii_escaping_keep_existing_boundaries() {
         for (input, expected) in [
