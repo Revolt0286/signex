@@ -1,7 +1,7 @@
 //! AST validator: checks predicate whitelist and target compatibility.
 
 use crate::ast::*;
-use crate::compiler::parse_pin_type;
+use crate::compiler::{is_pin_kind_field, resolve_pin_kind};
 use crate::error::DslError;
 
 // ---------------------------------------------------------------------------
@@ -101,10 +101,7 @@ fn validate_expr(rule_id: &str, target: TargetKind, expr: &ExprAst, out: &mut Ve
         }
         ExprAst::FieldCmp { field, value, .. } => {
             validate_field(rule_id, target, field, out);
-            if let FieldExprAst::Access { object, field } = field
-                && object == "pin"
-                && field == "kind"
-            {
+            if is_pin_kind_field(field) {
                 validate_pin_kind(rule_id, value, out);
             }
         }
@@ -114,11 +111,8 @@ fn validate_expr(rule_id: &str, target: TargetKind, expr: &ExprAst, out: &mut Ve
 
 /// A pin kind no pin can have would make the rule silently never fire.
 fn validate_pin_kind(rule_id: &str, kind: &LiteralAst, out: &mut Vec<DslError>) {
-    if parse_pin_type(kind.as_str_value()).is_none() {
-        out.push(DslError::UnknownPinKind {
-            rule: rule_id.to_string(),
-            value: kind.as_str_value().to_string(),
-        });
+    if let Err(error) = resolve_pin_kind(rule_id, kind) {
+        out.push(error);
     }
 }
 

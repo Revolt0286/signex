@@ -215,4 +215,26 @@ mod tests {
             "a known kind still compiles"
         );
     }
+
+    /// The compiler resolves pin kinds itself, so an unknown one fails even
+    /// through `compile()`, which does not run the validator.
+    #[test]
+    fn compile_rejects_unknown_pin_kind_without_validation() {
+        for (target, when) in [
+            ("net", r#"has_pin_kind("pwr_in")"#),
+            ("pin", r#"pin.kind != "pwr_in""#),
+        ] {
+            let src = format!(r#"rule r on {target} when {when} then error "x""#);
+            let rules = parse(&src).expect("parses");
+            let Err(errors) = compile(&rules) else {
+                panic!("{src} should not compile");
+            };
+            assert!(
+                errors
+                    .iter()
+                    .any(|e| e.to_string().contains("unknown pin kind 'pwr_in'")),
+                "{src}: {errors:?}"
+            );
+        }
+    }
 }

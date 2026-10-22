@@ -27,6 +27,10 @@ Each release section is authored **before** the `vX.Y.Z` tag is created, so the 
 
 - **Release version guard** — the release workflow now runs `scripts/check_release_version.sh` before any build and fails unless the tag, `[workspace.package] version` in `Cargo.toml`, and a dated (not `unreleased`) `## [X.Y.Z]` CHANGELOG section all agree, printing all three values on a mismatch (#343).
 
+### Fixed — ERC
+
+- **ERC DSL pin kinds (#676)** — `pin.kind == / !=` accepts the same pin-kind spellings as `has_pin_kind` (`power_in`, `tristate`, `open_collector`, …), so a rule written with one of them now fires. An unknown pin-kind literal in either form is now a validation error instead of a rule that silently never fires; as with other DSL errors, the rule file is refused and the error is logged.
+
 ### Fixed
 
 - **Unknown TOML keys survive a load-save cycle (#313, #314)** — manifest, sheet, symbol, stackup, nets, board, footprint and pad keys a newer Signex wrote now round-trip through `.snxsch` / `.snxpcb` instead of being dropped on save. Not yet preserved: keys directly under `[extras]`, junction extras, `[sheets.*]`, the PCB top-level `[extras]`, `[[zones]]` and TSV columns.
