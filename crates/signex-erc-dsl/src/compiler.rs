@@ -311,6 +311,7 @@ fn eval_helper(helper: &CompiledHelper, subject: Subject<'_>) -> bool {
 enum Value {
     Str(String),
     Bool(bool),
+    PinKind(PinDirection),
 }
 
 fn eval_field_cmp(
@@ -324,6 +325,15 @@ fn eval_field_cmp(
     };
 
     match (lhs, value) {
+        // Compare kinds, not names, so `pin.kind` accepts every spelling
+        // `has_pin_kind` does.
+        (Value::PinKind(a), rhs) => {
+            let b = parse_pin_type(rhs.as_str_value());
+            match op {
+                CmpOp::Eq => b == Some(a),
+                CmpOp::Ne => b != Some(a),
+            }
+        }
         (Value::Bool(a), LiteralAst::Bool(b)) => match op {
             CmpOp::Eq => a == *b,
             CmpOp::Ne => a != *b,
@@ -351,6 +361,7 @@ fn eval_field_matches(field: &FieldExprAst, regex: &Regex, subject: Subject<'_>)
     };
     match lhs {
         Value::Str(s) => regex.is_match(&s),
+        Value::PinKind(kind) => regex.is_match(pin_type_name(kind)),
         Value::Bool(_) => false,
     }
 }
@@ -366,7 +377,7 @@ fn resolve_field(field: &FieldExprAst, subject: Subject<'_>) -> Option<Value> {
         }
         (FieldExprAst::Access { object, field }, Subject::Pin(pin)) if object == "pin" => {
             match field.as_str() {
-                "kind" => Some(Value::Str(pin_type_name(pin.electrical_type).to_string())),
+                "kind" => Some(Value::PinKind(pin.electrical_type)),
                 "required" => Some(Value::Bool(pin.required)),
                 "connected" => Some(Value::Bool(pin.connected)),
                 _ => None,
@@ -458,7 +469,7 @@ fn is_driving_pin(t: PinDirection) -> bool {
     )
 }
 
-fn parse_pin_type(s: &str) -> Option<PinDirection> {
+pub(crate) fn parse_pin_type(s: &str) -> Option<PinDirection> {
     match normalize(s).as_str() {
         "input" => Some(PinDirection::Input),
         "output" => Some(PinDirection::Output),
@@ -502,4 +513,34 @@ fn normalize(s: &str) -> String {
         .filter(|c| *c != '_' && *c != '-' && !c.is_whitespace())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_pin_type, pin_type_name};
+    use signex_types::schematic::PinDirection;
+
+    /// Every name `pin.kind` compared against before #676 must still parse
+    /// back to its own kind, so no existing rule changes meaning.
+    #[test]
+    fn every_pin_kind_name_parses_back_to_itself() {
+        for kind in [
+            PinDirection::Input,
+            PinDirection::Output,
+            PinDirection::Bidirectional,
+            PinDirection::ThreeStatable,
+            PinDirection::Passive,
+            PinDirection::PowerInput,
+            PinDirection::PowerOutput,
+            PinDirection::GroundReference,
+            PinDirection::OpenDrainLow,
+            PinDirection::OpenDrainHigh,
+            PinDirection::Differential,
+            PinDirection::Clock,
+            PinDirection::DoNotConnect,
+            PinDirection::Unclassified,
+        ] {
+            assert_eq!(parse_pin_type(pin_type_name(kind)), Some(kind));
+        }
+    }
 }
