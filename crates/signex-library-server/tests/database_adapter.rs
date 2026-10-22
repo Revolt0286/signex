@@ -4,6 +4,11 @@
 //! prove the client matches the stubs. These tests serve the real router on
 //! a loopback port, backed by in-memory SQLite, and drive the real client
 //! against it, so a contract mismatch on either side fails here.
+//!
+//! The tests never write the environment: the server takes its token from
+//! `SIGNEX_API_TOKEN` as the process started, and the client sends the same
+//! value. Unset, the loopback server runs unauthenticated; the wiremock tests
+//! in signex-library cover the auth header.
 
 use signex_library::adapter::{LibraryAdapter, LibraryError, PrimitiveSummary};
 use signex_library::adapters::database::DatabaseAdapter;
@@ -13,9 +18,6 @@ use signex_library_server::db::AppState;
 use signex_library_server::{API_TOKEN_ENV, router_with_state};
 use uuid::Uuid;
 
-/// Same fixture token as the other integration tests in this crate.
-const TEST_BEARER: &str = "test-bearer-token";
-
 /// A real server on a loopback port. The runtime lives as long as the value.
 struct TestServer {
     url: String,
@@ -24,11 +26,6 @@ struct TestServer {
 
 impl TestServer {
     fn start() -> Self {
-        // SAFETY: every test in this crate sets the same value, so racing
-        // writers cannot disagree (see `integration_db.rs`).
-        unsafe {
-            std::env::set_var(API_TOKEN_ENV, TEST_BEARER);
-        }
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -65,7 +62,7 @@ impl TestServer {
             },
             mode: LibraryMode::Database {
                 url: self.url.clone(),
-                auth: TEST_BEARER.into(),
+                auth: std::env::var(API_TOKEN_ENV).unwrap_or_default(),
             },
             workflow: Default::default(),
             users: Default::default(),
