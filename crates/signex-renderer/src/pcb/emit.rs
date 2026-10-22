@@ -201,6 +201,8 @@ pub(super) fn emit_traces(snapshot: &PcbSnapshot, theme: &ResolvedTheme, scene: 
             p1: trace.p1,
             width: trace.width_mm,
             color: trace_color,
+            // Bit 0 of `style` is the dash flag. A trace's net, if it is ever
+            // encoded here, goes above bit 8 like the ratsnest's.
             style: 0,
             _pad: 0,
         });

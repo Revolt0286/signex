@@ -461,25 +461,58 @@ mod tests {
     /// copper must span exactly drill/2 ..= diameter/2.
     #[test]
     fn via_ring_spans_hole_edge_to_outer_edge() {
-        let snapshot = PcbSnapshot {
-            vias: vec![ViaInput {
-                center: [0.0, 0.0],
-                diameter_mm: 0.6,
-                drill_mm: 0.3,
-                net: 1,
-            }],
-            ..PcbSnapshot::default()
-        };
         let theme = ResolvedTheme::builtin_default();
-        let mut scene = Scene::default();
+        for (drill_mm, hole_edge) in [(0.3, 0.15), (0.0, 0.0)] {
+            let snapshot = PcbSnapshot {
+                vias: vec![ViaInput {
+                    center: [0.0, 0.0],
+                    diameter_mm: 0.6,
+                    drill_mm,
+                    net: 1,
+                }],
+                ..PcbSnapshot::default()
+            };
+            let mut scene = Scene::default();
 
-        PcbRenderer::build_scene(&snapshot, &theme, DirtyFlags::CIRCLES, &mut scene);
+            PcbRenderer::build_scene(&snapshot, &theme, DirtyFlags::CIRCLES, &mut scene);
 
-        let ring = scene.circles[0];
-        assert!(!ring.is_filled());
-        let half_stroke = ring.stroke_width * 0.5;
-        assert!((ring.radius + half_stroke - 0.3).abs() < 1e-6, "outer edge");
-        assert!((ring.radius - half_stroke - 0.15).abs() < 1e-6, "hole edge");
+            let ring = scene.circles[0];
+            assert!(!ring.is_filled(), "drill {drill_mm}");
+            let half_stroke = ring.stroke_width * 0.5;
+            assert!(
+                (ring.radius + half_stroke - 0.3).abs() < 1e-6,
+                "outer edge, drill {drill_mm}"
+            );
+            assert!(
+                (ring.radius - half_stroke - hole_edge).abs() < 1e-6,
+                "hole edge, drill {drill_mm}"
+            );
+        }
+    }
+
+    /// A drill at or above the via diameter leaves no annulus; the hole clamps
+    /// to the outer edge and the via draws as a filled disc of its diameter.
+    #[test]
+    fn via_without_annulus_draws_a_filled_disc() {
+        let theme = ResolvedTheme::builtin_default();
+        for drill_mm in [0.6, 0.8] {
+            let snapshot = PcbSnapshot {
+                vias: vec![ViaInput {
+                    center: [0.0, 0.0],
+                    diameter_mm: 0.6,
+                    drill_mm,
+                    net: 1,
+                }],
+                ..PcbSnapshot::default()
+            };
+            let mut scene = Scene::default();
+
+            PcbRenderer::build_scene(&snapshot, &theme, DirtyFlags::CIRCLES, &mut scene);
+
+            let disc = scene.circles[0];
+            assert!(disc.is_filled(), "drill {drill_mm}");
+            assert!((disc.radius - 0.3).abs() < 1e-6, "drill {drill_mm}");
+        }
     }
 
     /// Pads composite above traces, zones and rule areas below them, so they
