@@ -507,6 +507,7 @@ mod tests {
 
     fn test_symbol() -> Symbol {
         Symbol {
+            unknown: Default::default(),
             uuid: Uuid::new_v4(),
             lib_id: "Device:R".to_string(),
             reference: "R1".to_string(),
@@ -578,6 +579,7 @@ mod tests {
                     no_erc_directives: vec![],
                     title_block: Default::default(),
                     lib_symbols: Default::default(),
+                    unknown: Default::default(),
                 },
                 sheet_name: "Main".to_string(),
                 sheet_number: 1,
