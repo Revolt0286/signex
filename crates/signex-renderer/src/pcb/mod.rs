@@ -262,8 +262,8 @@ impl ViewRenderer for PcbRenderer {
 mod tests {
     use super::{
         DrcMarkerInput, PcbAppEvent, PcbRenderer, PcbSliceFamily, PcbSnapshot, RatsnestInput,
-        ZonePolygonInput, dirty_flags_for_event, dirty_flags_for_events, dirty_flags_for_families,
-        sort_zone_stack,
+        TraceInput, ViaInput, ZonePolygonInput, dirty_flags_for_event, dirty_flags_for_events,
+        dirty_flags_for_families, sort_zone_stack,
     };
     use crate::schematic::ViewRenderer;
     use crate::theme::ResolvedTheme;
@@ -432,7 +432,54 @@ mod tests {
         assert_eq!(scene.lines.len(), 1);
         assert_eq!(scene.circles.len(), 1);
         assert_eq!(scene.polygons.len() + scene.top_polygons.len(), 4);
-        assert_eq!(scene.lines[0].style, 1);
+    }
+
+    /// #679: a trace's net number must not leak into the line's dash bit.
+    #[test]
+    fn traces_draw_solid_on_every_net() {
+        let snapshot = PcbSnapshot {
+            traces: (0..4)
+                .map(|net| TraceInput {
+                    p0: [0.0, net as f32],
+                    p1: [5.0, net as f32],
+                    width_mm: 0.25,
+                    net,
+                })
+                .collect(),
+            ..PcbSnapshot::default()
+        };
+        let theme = ResolvedTheme::builtin_default();
+        let mut scene = Scene::default();
+
+        PcbRenderer::build_scene(&snapshot, &theme, DirtyFlags::LINES, &mut scene);
+
+        assert_eq!(scene.lines.len(), 4);
+        assert!(scene.lines.iter().all(|line| !line.is_dashed()));
+    }
+
+    /// #681: both renderers centre a ring's stroke on its radius, so the via's
+    /// copper must span exactly drill/2 ..= diameter/2.
+    #[test]
+    fn via_ring_spans_hole_edge_to_outer_edge() {
+        let snapshot = PcbSnapshot {
+            vias: vec![ViaInput {
+                center: [0.0, 0.0],
+                diameter_mm: 0.6,
+                drill_mm: 0.3,
+                net: 1,
+            }],
+            ..PcbSnapshot::default()
+        };
+        let theme = ResolvedTheme::builtin_default();
+        let mut scene = Scene::default();
+
+        PcbRenderer::build_scene(&snapshot, &theme, DirtyFlags::CIRCLES, &mut scene);
+
+        let ring = scene.circles[0];
+        assert!(!ring.is_filled());
+        let half_stroke = ring.stroke_width * 0.5;
+        assert!((ring.radius + half_stroke - 0.3).abs() < 1e-6, "outer edge");
+        assert!((ring.radius - half_stroke - 0.15).abs() < 1e-6, "hole edge");
     }
 
     /// Pads composite above traces, zones and rule areas below them, so they
